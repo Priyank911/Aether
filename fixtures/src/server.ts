@@ -8,6 +8,7 @@ import {
   NESTED_GRANDCHILD_HTML,
   NESTED_IFRAMES_PAGE_HTML,
   SHADOW_DOM_PAGE_HTML,
+  INJECTION_PAGE_HTML,
 } from './pages.js';
 
 export interface FixtureServers {
@@ -27,6 +28,8 @@ export async function startFixtureServers(
 
     if (url === '/form.html' || url === '/') {
       res.end(FORM_PAGE_HTML);
+    } else if (url === '/injection.html') {
+      res.end(INJECTION_PAGE_HTML);
     } else if (url === '/nested-iframes.html') {
       res.end(NESTED_IFRAMES_PAGE_HTML);
     } else if (url === '/nested-child.html') {

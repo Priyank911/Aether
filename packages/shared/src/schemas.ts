@@ -77,6 +77,39 @@ export const CdpWireMessageSchema = z.union([
   }),
 ]);
 
+export const PolicyOutcomeSchema = z.enum([
+  'allow',
+  'needs_approval',
+  'human_must_perform',
+  'refuse',
+]);
+
+export const PolicyDecisionSchema = z.object({
+  outcome: PolicyOutcomeSchema,
+  reason: z.string(),
+  actionRef: z.string().optional(),
+});
+
+export const HandoffRecordSchema = z.object({
+  handoffId: z.string(),
+  question: z.string(),
+  options: z.array(z.string()).min(2).max(4).optional(),
+  state: z.enum(['waiting_human', 'completed', 'cancelled']),
+  answer: z.string().optional(),
+  timestamp: z.number().int(),
+});
+
+export const PickModeRequestSchema = z.object({
+  enabled: z.boolean(),
+});
+
+export const PickModeResultSchema = z.object({
+  backendNodeId: z.number().int(),
+  ref: z.string().optional(),
+  role: z.string().optional(),
+  name: z.string().optional(),
+});
+
 export const BridgeConfigSchema = z.object({
   port: z.number().int().min(1).max(65535),
   token: z.string().min(32),
@@ -84,13 +117,46 @@ export const BridgeConfigSchema = z.object({
 
 export const BridgeStatusSchema = z.object({
   type: z.literal('aether.status'),
-  state: z.enum(['connected', 'disconnected', 'step']),
+  state: z.enum(['connected', 'disconnected', 'step', 'waiting_human']),
   label: z.string(),
   timestamp: z.number().int(),
+  handoff: HandoffRecordSchema.optional(),
+});
+
+export const ReplayEntrySchema = z.object({
+  id: z.string(),
+  site: z.string(),
+  goal: z.string(),
+  structureHash: z.string(),
+  actions: z.array(ActionItemSchema),
+  timestamp: z.number().int(),
+  hitCount: z.number().int().default(0),
+});
+
+export const HistoryStepSchema = z.object({
+  step: z.number().int(),
+  actor: z.enum(['agent', 'human']),
+  action: z.string(),
+  outcome: z.string(),
+  timestamp: z.number().int().optional(),
+});
+
+export const ViewportFilterSchema = z.object({
+  viewportHeight: z.number().default(800),
+  viewportWidth: z.number().default(1280),
+  enabled: z.boolean().default(true),
 });
 
 export const BridgeMessageSchema = z.union([CdpWireMessageSchema, BridgeStatusSchema]);
 
+export type PolicyOutcome = z.infer<typeof PolicyOutcomeSchema>;
+export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>;
+export type HandoffRecord = z.infer<typeof HandoffRecordSchema>;
+export type PickModeRequest = z.infer<typeof PickModeRequestSchema>;
+export type PickModeResult = z.infer<typeof PickModeResultSchema>;
+export type ReplayEntry = z.infer<typeof ReplayEntrySchema>;
+export type HistoryStep = z.infer<typeof HistoryStepSchema>;
+export type ViewportFilter = z.infer<typeof ViewportFilterSchema>;
 export type BridgeConfig = z.infer<typeof BridgeConfigSchema>;
 export type BridgeStatus = z.infer<typeof BridgeStatusSchema>;
 export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;

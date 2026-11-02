@@ -46,7 +46,7 @@ function connectNativeHost(): void {
       else if (isCdpEvent(parsed)) void handleCdpEvent(parsed);
       else {
         const status = BridgeStatusSchema.safeParse(parsed);
-        if (status.success) publishStatus(status.data.state, status.data.label);
+        if (status.success) publishStatus(status.data.state, status.data.label, status.data.handoff);
       }
     });
     nativePort.onDisconnect.addListener(() => {
@@ -129,8 +129,14 @@ function sendToHost(message: unknown): void {
   }
 }
 
-function publishStatus(state: 'connected' | 'disconnected' | 'step', label: string): void {
-  const status = { type: 'aether.status', state, label: label.slice(0, 180), timestamp: Date.now() };
+function publishStatus(state: ReturnType<typeof BridgeStatusSchema.shape.state.parse>, label: string, handoff?: ReturnType<typeof BridgeStatusSchema.shape.handoff.parse>): void {
+  const status = {
+    type: 'aether.status' as const,
+    state,
+    label: label.slice(0, 180),
+    timestamp: Date.now(),
+    ...(handoff ? { handoff } : {}),
+  };
   try {
     const checked = BridgeMessageSchema.parse(status);
     if ('type' in checked && checked.type === 'aether.status') {

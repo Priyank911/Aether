@@ -44,6 +44,9 @@ importers:
       '@aether/perceiver':
         specifier: workspace:*
         version: link:../../packages/perceiver
+      '@aether/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
       '@aether/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -140,6 +143,12 @@ importers:
       '@aether/cdp':
         specifier: workspace:*
         version: link:../cdp
+      '@aether/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/policy:
+    dependencies:
       '@aether/shared':
         specifier: workspace:*
         version: link:../shared

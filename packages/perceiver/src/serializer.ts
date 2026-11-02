@@ -11,12 +11,27 @@ export interface FrameElementsData {
   elements: ParsedElement[];
 }
 
+export interface ViewportSerializeOptions {
+  inViewportNodeIds?: Set<number>;
+}
+
+const LANDMARK_AND_HEADING_ROLES = new Set([
+  'heading',
+  'banner',
+  'navigation',
+  'main',
+  'search',
+  'form',
+  'dialog',
+]);
+
 export class OutlineSerializer {
   public static serialize(
     pageUrl: string,
     pageTitle: string,
     framesCount: number,
     framesData: FrameElementsData[],
+    viewportOptions?: ViewportSerializeOptions,
   ): OutlineSnapshot {
     const lines: string[] = [];
     lines.push(`page ${pageUrl}  "${pageTitle}"  frames=${framesCount}`);
@@ -32,6 +47,7 @@ export class OutlineSerializer {
         lines.push(`frame ${frame.frameOrdinal} ${frame.frameUrl}`);
       }
 
+      let belowViewportCount = 0;
       const collapsedNodes = SiblingCollapser.collapseSiblings(frame.elements);
 
       const renderNode = (node: OutlineNode, depth: number): void => {
@@ -47,6 +63,13 @@ export class OutlineSerializer {
         if (node.role === 'collapsed_marker') {
           lines.push(`${indent}${node.name}`);
           return;
+        }
+
+        if (viewportOptions?.inViewportNodeIds && !LANDMARK_AND_HEADING_ROLES.has(node.role)) {
+          if (!viewportOptions.inViewportNodeIds.has(node.backendDOMNodeId)) {
+            belowViewportCount++;
+            return;
+          }
         }
 
         if (totalActionableElements >= MAX_ELEMENTS_PER_SNAPSHOT) {
@@ -87,6 +110,11 @@ export class OutlineSerializer {
 
       for (const node of collapsedNodes) {
         renderNode(node, frame.frameOrdinal > 0 ? 1 : 0);
+      }
+
+      if (belowViewportCount > 0) {
+        const indent = frame.frameOrdinal > 0 ? '  ' : '';
+        lines.push(`${indent}... ${belowViewportCount} more below (scroll or find)`);
       }
     }
 

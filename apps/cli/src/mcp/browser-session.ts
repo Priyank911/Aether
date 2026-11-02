@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { CDPClient, ChromeLauncher, FrameManager, type CDPSession, type LaunchedBrowser } from '@aether/cdp';
 import { AXExtractor, Perceiver, type RawAXNode } from '@aether/perceiver';
 import { Actor } from '@aether/actor';
+import { PolicyClassifier } from '@aether/policy';
 import {
   MAX_ELEMENTS_PER_SNAPSHOT,
   MAX_NAME_LENGTH,
@@ -9,13 +10,14 @@ import {
   ActParamsSchema,
   ScreenshotParamsSchema,
   type Delta,
+  type HandoffRecord,
   type OutlineSnapshot,
   type ParsedElement,
+  type PickModeResult,
 } from '@aether/shared';
 import { wrapUntrustedPageText } from './untrusted.js';
 
 const NAVIGATION_TIMEOUT_MS = 8000;
-const RISKY_ACTION_NAME = /\b(buy|pay|place order|send|post|publish|delete|remove|submit|confirm|transfer|subscribe)\b/i;
 
 interface BoxModelResult {
   model: { border: number[] };
@@ -31,6 +33,7 @@ interface LayoutMetricsResult {
 
 export interface MCPBrowserSessionOptions {
   headless?: boolean;
+  ephemeral?: boolean;
 }
 
 export class MCPBrowserSession {
@@ -41,6 +44,7 @@ export class MCPBrowserSession {
   private perceiver: Perceiver;
   private actor?: Actor;
   private previousSnapshot?: OutlineSnapshot;
+  private currentHandoff?: HandoffRecord;
   private stepNumber = 0;
   private closed = false;
 
@@ -54,7 +58,10 @@ export class MCPBrowserSession {
   }
 
   public static async launch(options: MCPBrowserSessionOptions = {}): Promise<MCPBrowserSession> {
-    const browser = await ChromeLauncher.launch({ headless: options.headless ?? false });
+    const browser = await ChromeLauncher.launch({
+      headless: options.headless ?? false,
+      ephemeral: options.ephemeral ?? false,
+    });
     let client: CDPClient | undefined;
 
     try {
@@ -76,9 +83,9 @@ export class MCPBrowserSession {
 
   public async navigate(url: string): Promise<OutlineSnapshot> {
     await this.ensureReady();
-    const parsedUrl = new URL(url);
-    if (!['http:', 'https:'].includes(parsedUrl.protocol) && url !== 'about:blank') {
-      throw new Error('Navigation is limited to http, https, and about:blank');
+    const decision = PolicyClassifier.classifyNavigation(url);
+    if (decision.outcome === 'refuse') {
+      throw new Error(`refuse: ${decision.reason}`);
     }
 
     this.perceiver.onNavigation();
@@ -110,6 +117,7 @@ export class MCPBrowserSession {
     snapshot: OutlineSnapshot;
   }> {
     await this.ensureReady();
+    await this.ensureActionAllowed(rawParams);
     const actor = this.actor;
     if (!actor) throw new Error('Chrome tab is not attached');
     const result = await actor.execute(
@@ -202,25 +210,107 @@ export class MCPBrowserSession {
   public async ensureActionAllowed(rawParams: unknown): Promise<void> {
     await this.ensureReady();
     const parsed = ActParamsSchema.parse(rawParams);
-    if (parsed.risk === 'irreversible') {
-      throw new Error('needs_approval: irreversible actions require human approval');
-    }
-
     const elements = await this.captureAllElements();
+
     for (const action of parsed.actions) {
       const target = elements.find((element) => element.ref === action.ref);
       if (!target) throw new Error(`Unknown or stale ref: ${action.ref}`);
-      if (RISKY_ACTION_NAME.test(`${target.name} ${target.value ?? ''}`)) {
-        throw new Error(`needs_approval: action target ${action.ref} appears irreversible`);
-      }
-      if (action.op === 'type' && (await this.isPasswordField(action.ref))) {
-        throw new Error(`human_must_perform: password field ${action.ref} cannot be typed by the agent`);
+      const attrs = await this.getNodeAttributes(action.ref);
+      const decision = PolicyClassifier.classifyAction(action, target, parsed.risk, attrs);
+      if (decision.outcome !== 'allow') {
+        throw new Error(`${decision.outcome}: ${decision.reason}`);
       }
     }
   }
 
+  public createHandoff(question: string, options?: string[]): HandoffRecord {
+    const handoffId = randomUUID();
+    const handoff: HandoffRecord = {
+      handoffId,
+      question,
+      options,
+      state: 'waiting_human',
+      timestamp: Date.now(),
+    };
+    this.currentHandoff = handoff;
+    return handoff;
+  }
+
+  public getCurrentHandoff(): HandoffRecord | undefined {
+    return this.currentHandoff;
+  }
+
+  public async completeHandoff(
+    handoffId: string,
+    answer?: string,
+  ): Promise<{ snapshot: OutlineSnapshot; text: string }> {
+    if (!this.currentHandoff || this.currentHandoff.handoffId !== handoffId) {
+      throw new Error(`Unknown or invalid handoff ID: ${handoffId}`);
+    }
+    this.currentHandoff.state = 'completed';
+    this.currentHandoff.answer = answer;
+
+    // Reset ref mappings per section 7.6 of plan:
+    // "The human acts in the same tab. On 'Done', the engine takes a full snapshot, appends a history line ('human acted, page changed'), and resumes."
+    // "Any human input invalidates stale refs and forces a full re-snapshot."
+    this.perceiver.onNavigation();
+    const snapshot = await this.capture();
+    const untrustedOutline = wrapUntrustedPageText(snapshot.formattedText);
+    const text = `human acted, page changed\n${untrustedOutline}`;
+    return { snapshot, text };
+  }
+
+  public async setPickMode(enabled: boolean): Promise<void> {
+    await this.ensureReady();
+    const session = this.requireMainSession();
+    await session.send('Overlay.enable');
+    if (enabled) {
+      await session.send('Overlay.setInspectMode', {
+        mode: 'searchForNode',
+        highlightConfig: {
+          showInfo: true,
+          contentColor: { r: 52, g: 211, b: 153, a: 0.4 },
+          borderColor: { r: 16, g: 185, b: 129, a: 0.9 },
+        },
+      });
+    } else {
+      await session.send('Overlay.setInspectMode', {
+        mode: 'none',
+        highlightConfig: {},
+      });
+    }
+  }
+
+  public async pickElementAtPoint(x: number, y: number): Promise<PickModeResult> {
+    await this.ensureReady();
+    const session = this.requireMainSession();
+    const loc = await session.send<{ backendNodeId: number }>('DOM.getNodeForLocation', {
+      x: Math.round(x),
+      y: Math.round(y),
+    });
+    if (!loc.backendNodeId) {
+      throw new Error(`No element found at coordinates (${x}, ${y})`);
+    }
+
+    const ref = this.perceiver.registry.getOrAssign(0, loc.backendNodeId);
+    const desc = await session.send<{ node: { nodeName: string } }>('DOM.describeNode', {
+      backendNodeId: loc.backendNodeId,
+    }).catch(() => null);
+
+    const role = desc?.node?.nodeName?.toLowerCase() ?? 'element';
+
+    await this.setPickMode(false);
+
+    return {
+      backendNodeId: loc.backendNodeId,
+      ref,
+      role,
+      name: role,
+    };
+  }
+
   public newHandoffId(): string {
-    return randomUUID();
+    return this.createHandoff('Action requires human intervention').handoffId;
   }
 
   public async close(): Promise<void> {
@@ -235,21 +325,25 @@ export class MCPBrowserSession {
     return wrapUntrustedPageText(snapshot.formattedText);
   }
 
-  private async isPasswordField(ref: string): Promise<boolean> {
+  private async getNodeAttributes(ref: string): Promise<Map<string, string>> {
     const mapping = this.perceiver.registry.resolve(ref);
-    if (!mapping) throw new Error(`Unknown or stale ref: ${ref}`);
-    const session = this.sessionForRef(ref);
-    const description = await session.send<{ node: { attributes?: string[] } }>('DOM.describeNode', {
-      backendNodeId: mapping.backendDOMNodeId,
-    });
-    const attributes = description.node.attributes ?? [];
-    const values = new Map<string, string>();
-    for (let index = 0; index + 1 < attributes.length; index += 2) {
-      const key = attributes[index];
-      const value = attributes[index + 1];
-      if (key !== undefined && value !== undefined) values.set(key.toLowerCase(), value.toLowerCase());
+    if (!mapping) return new Map();
+    try {
+      const session = this.sessionForRef(ref);
+      const description = await session.send<{ node: { attributes?: string[] } }>('DOM.describeNode', {
+        backendNodeId: mapping.backendDOMNodeId,
+      });
+      const attributes = description.node.attributes ?? [];
+      const values = new Map<string, string>();
+      for (let index = 0; index + 1 < attributes.length; index += 2) {
+        const key = attributes[index];
+        const value = attributes[index + 1];
+        if (key !== undefined && value !== undefined) values.set(key.toLowerCase(), value.toLowerCase());
+      }
+      return values;
+    } catch {
+      return new Map();
     }
-    return values.get('type') === 'password' || values.get('autocomplete') === 'current-password';
   }
 
   private sessionForRef(ref: string): CDPSession {

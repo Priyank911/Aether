@@ -9,6 +9,7 @@
   --muted: #748487;
   --line: #dfe8e6;
   --teal: #14766d;
+  --amber: #d0845e;
   --mono: Consolas, 'Courier New', monospace;
 }
 
@@ -23,6 +24,7 @@ h1 { font-size: 17px; letter-spacing: -.03em; margin: 3px 0 0; font-weight: 700;
 .connection-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: auto; background: #c1ccca; }
 .connection-dot.connected, .connection-dot.step { background: #2b9b7b; box-shadow: 0 0 0 4px #e1f1ec; }
 .connection-dot.disconnected { background: #d0845e; box-shadow: 0 0 0 4px #f7e9df; }
+.connection-dot.waiting_human { background: #d4a33e; box-shadow: 0 0 0 4px #fdf3db; }
 .session-block { padding: 22px 0 20px; border-bottom: 1px solid var(--line); }
 .section-label { display: flex; justify-content: space-between; align-items: center; }
 .live-label { color: var(--teal); }
@@ -37,9 +39,66 @@ h1 { font-size: 17px; letter-spacing: -.03em; margin: 3px 0 0; font-weight: 700;
 .timeline li { position: relative; display: flex; padding: 0 0 19px 1px; gap: 11px; }
 .timeline-marker { position: absolute; left: -21px; top: 2px; width: 8px; height: 8px; border-radius: 50%; background: #aebdb9; border: 2px solid #f4f7f6; }
 .timeline li.current .timeline-marker { background: var(--teal); box-shadow: 0 0 0 3px #d9ece7; }
+.timeline li.waiting .timeline-marker { background: #d4a33e; box-shadow: 0 0 0 3px #fdf3db; }
 .timeline p { font-size: 11px; line-height: 1.5; margin: -3px 0 5px; overflow-wrap: anywhere; }
 .timeline time { font: 9px var(--mono); color: #8a999b; }
+
+/* Handoff card */
+.handoff-card {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #fefcf7, transparent);
+}
+.handoff-card .section-label { color: #b8862d; }
+.handoff-question {
+  margin: 10px 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.handoff-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.handoff-option-btn {
+  font: 500 11px var(--mono);
+  padding: 5px 12px;
+  border: 1px solid #e0d4b8;
+  border-radius: 6px;
+  background: #faf6ed;
+  color: #7a6530;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.handoff-option-btn:hover {
+  background: #f2eacd;
+  border-color: #c9b88a;
+}
+.takeover-btn {
+  display: block;
+  width: 100%;
+  padding: 9px 0;
+  font: 600 12px 'Segoe UI', sans-serif;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--teal);
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.takeover-btn:hover {
+  background: #0f5f58;
+}
+
 footer { display: flex; align-items: center; gap: 9px; justify-content: center; padding-top: 17px; border-top: 1px solid var(--line); font-size: 8px; }
 .footer-line { height: 1px; width: 17px; background: #cbd8d5; }
-@media (prefers-reduced-motion: no-preference) { .connection-dot.step { animation: pulse 1.8s ease-in-out infinite; } }
+@media (prefers-reduced-motion: no-preference) {
+  .connection-dot.step { animation: pulse 1.8s ease-in-out infinite; }
+  .connection-dot.waiting_human { animation: pulse-amber 1.8s ease-in-out infinite; }
+}
 @keyframes pulse { 50% { box-shadow: 0 0 0 7px #e1f1ec; } }
+@keyframes pulse-amber { 50% { box-shadow: 0 0 0 7px #fdf3db; } }

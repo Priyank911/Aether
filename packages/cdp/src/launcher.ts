@@ -10,6 +10,7 @@ export interface LaunchOptions {
   userDataDir?: string;
   additionalArgs?: string[];
   timeoutMs?: number;
+  ephemeral?: boolean;
 }
 
 export interface LaunchedBrowser {
@@ -98,6 +99,10 @@ export class ChromeLauncher {
 
     if (options.headless !== false) {
       args.push('--headless=new');
+    }
+
+    if (options.ephemeral) {
+      args.push('--incognito');
     }
 
     if (options.additionalArgs) {

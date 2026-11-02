@@ -178,6 +178,25 @@ export class Perceiver {
     }
 
     const urlChanged = current.url !== previous.url;
+    const frameChanged = current.framesCount !== previous.framesCount;
+    const totalCurrent = Math.max(1, current.elements.length);
+    const changedRatio = (added.length + changed.length + removed.length) / totalCurrent;
+
+    // Plan section 7.1: Send a full snapshot instead of a delta on navigation,
+    // on a frame change, or when more than 40 percent of elements changed.
+    if (urlChanged || frameChanged || changedRatio > 0.4) {
+      return {
+        step,
+        status: 'ok',
+        urlChanged,
+        url: current.url,
+        added: current.elements,
+        changed: [],
+        removed: [],
+        formattedText: current.formattedText,
+        tokenEstimate: current.tokenEstimate,
+      };
+    }
 
     // Build delta formatted text
     const lines: string[] = [];

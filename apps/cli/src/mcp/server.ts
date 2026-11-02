@@ -94,9 +94,9 @@ export function createAetherMcpServer(browser: MCPBrowserSession): McpServer {
     description: 'Request human input and return immediately with a handoff ID.',
     inputSchema: AskParamsSchema,
   }, async ({ question, options }) => {
-    const handoffId = browser.newHandoffId();
+    const handoff = browser.createHandoff(question, options);
     const optionText = options ? `\nOptions: ${options.join(' | ')}` : '';
-    return textResult(`handoff_id=${handoffId}\nquestion=${question}${optionText}`);
+    return textResult(`handoff_id=${handoff.handoffId}\nstate=waiting_human\nquestion=${question}${optionText}`);
   });
 
   server.registerTool('done', {

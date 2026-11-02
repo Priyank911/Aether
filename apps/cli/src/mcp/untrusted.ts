@@ -1,3 +1,5 @@
+import { ContentSanitizer } from '@aether/policy';
+
 export function wrapUntrustedPageText(text: string): string {
-  return `<page untrusted>\n${text}\n</page untrusted>`;
+  return ContentSanitizer.wrapUntrusted(text);
 }
