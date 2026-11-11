@@ -89,8 +89,8 @@ export const CROSS_ORIGIN_CHILD_HTML = `<!DOCTYPE html>
   <title>Cross Origin Child Frame</title>
 </head>
 <body>
-  <h2>Cross Origin Child Container</h2>
-  <button id="apply-btn">Apply Now</button>
+  <h2 id="child-status">Cross Origin Child Container</h2>
+  <button id="apply-btn" onclick="document.getElementById('child-status').textContent = 'Application received'">Apply Now</button>
 </body>
 </html>
 `;
@@ -125,8 +125,12 @@ export const SHADOW_DOM_PAGE_HTML = `<!DOCTYPE html>
       <div class="shadow-container">
         <h2>Inside Shadow Root</h2>
         <button id="shadow-btn">Shadow Button Action</button>
+        <p id="shadow-status">Not pressed yet</p>
       </div>
     \`;
+    shadowRoot.getElementById('shadow-btn').addEventListener('click', () => {
+      shadowRoot.getElementById('shadow-status').textContent = 'Shadow action done';
+    });
   </script>
 </body>
 </html>
@@ -198,3 +202,134 @@ export const INJECTION_PAGE_HTML = `<!DOCTYPE html>
 </body>
 </html>
 `;
+
+export const UPLOAD_PAGE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Job Application</title></head>
+<body>
+  <main>
+    <h1>Apply</h1>
+    <label for="resume">Resume</label>
+    <input type="file" id="resume">
+    <p id="chosen">No file</p>
+    <script>document.getElementById('resume').addEventListener('change', (e) => { document.getElementById('chosen').textContent = e.target.files[0] ? 'Chosen: ' + e.target.files[0].name : 'No file'; });</script>
+  </main>
+</body>
+</html>
+`;
+
+export const DIALOG_PAGE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Draft Editor</title>
+</head>
+<body>
+  <main>
+    <h1>Draft editor</h1>
+    <button id="discard" onclick="document.getElementById('status').textContent = confirm('Discard the draft?') ? 'Draft discarded' : 'Draft kept'">Discard draft</button>
+    <p id="status">Draft open</p>
+    <a href="/form.html" target="_blank">Open the form in a new tab</a>
+  </main>
+</body>
+</html>
+`;
+
+export const TABLE_PAGE_HTML = (() => {
+  const products = [
+    ['Aurora Keyboard', '49.00', '4.1'],
+    ['Basalt Keyboard', '89.00', '4.6'],
+    ['Cinder Keyboard', '35.50', '3.9'],
+    ['Delta Keyboard', '120.00', '4.8'],
+    ['Ember Keyboard', '64.25', '4.3'],
+    ['Fjord Keyboard', '72.00', '4.0'],
+    ['Granite Keyboard', '99.99', '4.7'],
+    ['Harbor Keyboard', '42.10', '3.6'],
+  ];
+  const rows = products
+    .map(
+      ([name, price, rating]) =>
+        `      <tr><td>${name}</td><td>$${price}</td><td>${rating}</td><td><button>Add ${name} to cart</button></td></tr>`,
+    )
+    .join('\n');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Keyboard Catalog</title>
+</head>
+<body>
+  <main>
+    <h1>Mechanical keyboards</h1>
+    <button id="sort-price">Sort by price</button>
+    <table id="products">
+      <caption>Search results</caption>
+      <thead><tr><th>Product</th><th>Price</th><th>Rating</th><th>Action</th></tr></thead>
+      <tbody>
+${rows}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
+`;
+})();
+
+export const COVERED_PAGE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Covered Page</title>
+  <style>
+    #consent { position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; }
+    #consent .box { background: #fff; padding: 24px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Daily deals</h1>
+    <button id="deal-1">View deal one</button>
+    <button id="deal-2">View deal two</button>
+    <button id="deal-3">View deal three</button>
+    <a href="#more">More deals</a>
+  </main>
+  <div id="consent">
+    <div class="box">
+      <p>We use cookies.</p>
+      <button id="accept">Accept all</button>
+      <button id="reject">Reject</button>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+export const LONG_PAGE_HTML = (() => {
+  const navLinks = Array.from({ length: 40 }, (_, i) => `<a href="#nav-${i + 1}">Category ${i + 1}</a>`).join(' ');
+  const articles = Array.from(
+    { length: 120 },
+    (_, i) =>
+      `      <article><h3>Story ${i + 1}</h3><p>Summary for story ${i + 1}.</p><a href="#story-${i + 1}">Read story ${i + 1}</a></article>`,
+  ).join('\n');
+  const footerLinks = Array.from({ length: 60 }, (_, i) => `<a href="#footer-${i + 1}">Footer link ${i + 1}</a>`).join(' ');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Long News Page</title>
+  <style>article { height: 120px; }</style>
+</head>
+<body>
+  <header>
+    <nav aria-label="Sections">${navLinks}</nav>
+  </header>
+  <main>
+    <h1>Top stories</h1>
+    <form role="search"><input type="search" aria-label="Search stories"><button>Search</button></form>
+${articles}
+  </main>
+  <footer>${footerLinks}</footer>
+</body>
+</html>
+`;
+})();

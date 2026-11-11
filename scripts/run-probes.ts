@@ -1,150 +1,143 @@
+/**
+ * Step 1 exit gate: skim size and capture latency for the fixtures and five real
+ * sites, written to docs/probe-results.md. Run from the repository root: pnpm exec tsx scripts/run-probes.ts
+ */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { CDPClient, ChromeLauncher, FrameManager, type LaunchedBrowser } from '../packages/cdp/src/index.js';
+import { CDPClient, ChromeLauncher, type CDPSession } from '../packages/cdp/src/index.js';
 import { startFixtureServers } from '../fixtures/src/index.js';
-import { Perceiver } from '../packages/perceiver/src/index.js';
+import { Perceiver, renderSkim } from '../packages/perceiver/src/index.js';
 
-interface BenchResult {
-  target: string;
+const NAVIGATION_TIMEOUT_MS = 45000;
+
+interface ProbeRow {
+  name: string;
   url: string;
-  frameCount: number;
-  elementCount: number;
-  tokenEstimate: number;
-  truncated: boolean;
-  p50Ms: number;
-  p95Ms: number;
+  frames: number;
+  refs: number;
+  skimTokens: number;
+  p50: number;
+  p95: number;
+  note: string;
 }
 
-function percentile(arr: number[], p: number): number {
-  if (arr.length === 0) return 0;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor((p / 100) * sorted.length)));
-  return Number((sorted[idx] ?? 0).toFixed(2));
+function percentile(values: number[], p: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return Number((sorted[index] ?? 0).toFixed(1));
 }
 
-async function benchmarkUrl(
-  browser: LaunchedBrowser,
-  client: CDPClient,
-  targetName: string,
-  url: string,
-  iterations = 10,
-): Promise<BenchResult> {
-  console.log(`Benchmarking [${targetName}] (${url}) over ${iterations} runs...`);
-
-  const targets = await client.sendCommand<{ targetInfos: Array<{ targetId: string; type: string }> }>(
-    'Target.getTargets',
-  );
-  const pageTarget = targets.targetInfos.find((t) => t.type === 'page')!;
-  const session = await client.attachToTarget(pageTarget.targetId);
-
-  await session.send('Target.setAutoAttach', {
-    autoAttach: true,
-    waitForDebuggerOnStart: false,
-    flatten: true,
+async function navigate(session: CDPSession, url: string): Promise<boolean> {
+  const loaded = new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), NAVIGATION_TIMEOUT_MS);
+    session.once('Page.loadEventFired', () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
   });
-  await session.send('Page.enable').catch(() => {});
-  await session.send('Accessibility.enable').catch(() => {});
+  await session.send('Page.navigate', { url }, NAVIGATION_TIMEOUT_MS);
+  const ok = await loaded;
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  return ok;
+}
 
-  const latencies: number[] = [];
-  let lastSnapshot: any = null;
-
-  for (let i = 0; i < iterations; i++) {
-    const frameManager = new FrameManager();
-    client.on('sessionAttached', (childSession) => {
-      if (childSession.targetType === 'iframe') {
-        void frameManager.registerChildSession(childSession);
-      }
-    });
-
-    const loadPromise = new Promise<void>((resolve) => {
-      session.once('Page.loadEventFired', () => resolve());
-      setTimeout(resolve, 6000);
-    });
-
-    await session.send('Page.navigate', { url });
-    await loadPromise;
-    await new Promise((r) => setTimeout(r, 300));
-
-    await frameManager.initFromSession(session, client);
-
-    const perceiver = new Perceiver();
-    const t0 = performance.now();
-    lastSnapshot = await perceiver.capture(session, frameManager);
-    const duration = performance.now() - t0;
-    latencies.push(duration);
+async function probe(session: CDPSession, name: string, url: string, runs: number): Promise<ProbeRow> {
+  const loaded = await navigate(session, url);
+  const perceiver = new Perceiver(session);
+  const times: number[] = [];
+  let skimTokens = 0;
+  let refs = 0;
+  let frames = 0;
+  for (let run = 0; run < runs; run++) {
+    const started = performance.now();
+    const model = await perceiver.capture();
+    times.push(performance.now() - started);
+    skimTokens = renderSkim(model).tokens;
+    refs = model.order.length;
+    frames = model.frames.length;
   }
-
-  await session.detach().catch(() => {});
-
+  console.log(`${name}: skim ${skimTokens} tokens, ${refs} refs, p50 ${percentile(times, 50)} ms`);
   return {
-    target: targetName,
+    name,
     url,
-    frameCount: lastSnapshot?.framesCount || 1,
-    elementCount: lastSnapshot?.elementCount || 0,
-    tokenEstimate: lastSnapshot?.tokenEstimate || 0,
-    truncated: lastSnapshot?.truncated || false,
-    p50Ms: percentile(latencies, 50),
-    p95Ms: percentile(latencies, 95),
+    frames,
+    refs,
+    skimTokens,
+    p50: percentile(times, 50),
+    p95: percentile(times, 95),
+    note: loaded ? '' : 'no load event before timeout',
   };
 }
 
-async function main() {
-  const fixtureServers = await startFixtureServers(4101, 4102);
+async function main(): Promise<void> {
+  const fixtures = await startFixtureServers(4101, 4102);
   const browser = await ChromeLauncher.launch({ headless: true });
   const client = await CDPClient.connect(browser.wsEndpoint);
-
-  const results: BenchResult[] = [];
-
+  const rows: ProbeRow[] = [];
   try {
-    // 5 Fixtures
-    results.push(await benchmarkUrl(browser, client, 'Fixture: Simple Form', `${fixtureServers.mainBaseUrl}/form.html`, 10));
-    results.push(await benchmarkUrl(browser, client, 'Fixture: Nested Iframes', `${fixtureServers.mainBaseUrl}/nested-iframes.html`, 10));
-    results.push(await benchmarkUrl(browser, client, 'Fixture: Cross-Origin Iframe', `${fixtureServers.mainBaseUrl}/cross-origin.html`, 10));
-    results.push(await benchmarkUrl(browser, client, 'Fixture: Shadow DOM', `${fixtureServers.mainBaseUrl}/shadow-dom.html`, 10));
-    results.push(await benchmarkUrl(browser, client, 'Fixture: 500-Row List', `${fixtureServers.mainBaseUrl}/long-list.html`, 10));
+    const targets = await client.sendCommand<{ targetInfos: Array<{ targetId: string; type: string }> }>('Target.getTargets');
+    const pageTarget = targets.targetInfos.find((target) => target.type === 'page');
+    if (!pageTarget) throw new Error('No page target');
+    const session = await client.attachToTarget(pageTarget.targetId);
+    await session.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+    await session.send('Page.enable');
+    await session.send('DOM.enable');
+    await session.send('Accessibility.enable');
+    await session.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
 
-    // 5 Real Sites
-    const realSites = [
-      { name: 'Wikipedia: Alan Turing', url: 'https://en.wikipedia.org/wiki/Alan_Turing' },
-      { name: 'DuckDuckGo Search', url: 'https://duckduckgo.com' },
-      { name: 'GitHub Public', url: 'https://github.com' },
-      { name: 'Hacker News', url: 'https://news.ycombinator.com' },
-      { name: 'Example Domain', url: 'https://example.com' },
+    const base = fixtures.mainBaseUrl;
+    const targetsToProbe: Array<[string, string, number]> = [
+      ['Fixture: form', `${base}/form.html`, 10],
+      ['Fixture: nested iframes', `${base}/nested-iframes.html`, 10],
+      ['Fixture: cross-origin iframe', `${base}/cross-origin.html`, 10],
+      ['Fixture: shadow DOM', `${base}/shadow-dom.html`, 10],
+      ['Fixture: 500-row list', `${base}/long-list.html`, 10],
+      ['Fixture: table', `${base}/table.html`, 10],
+      ['Fixture: covered by overlay', `${base}/covered.html`, 10],
+      ['Wikipedia article', 'https://en.wikipedia.org/wiki/Alan_Turing', 5],
+      ['Hacker News', 'https://news.ycombinator.com/', 5],
+      ['DuckDuckGo results', 'https://html.duckduckgo.com/html/?q=rust+programming+language', 5],
+      ['GitHub repository', 'https://github.com/microsoft/TypeScript', 5],
+      ['MDN reference', 'https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input', 5],
     ];
-
-    for (const site of realSites) {
+    for (const [name, url, runs] of targetsToProbe) {
       try {
-        results.push(await benchmarkUrl(browser, client, site.name, site.url, 5));
-      } catch (err) {
-        console.warn(`Could not probe ${site.url}:`, err);
+        rows.push(await probe(session, name, url, runs));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`${name} failed: ${message}`);
+        rows.push({ name, url, frames: 0, refs: 0, skimTokens: 0, p50: 0, p95: 0, note: `failed: ${message}` });
       }
     }
   } finally {
-    await client.close();
+    await client.close().catch(() => undefined);
     await browser.kill();
-    await fixtureServers.close();
+    await fixtures.close();
   }
 
-  // Format probe results markdown
-  let md = '# Aether Step 1 Probe & Benchmark Results\n\n';
-  md += `Recorded on: ${new Date().toISOString()}\n`;
-  md += `Environment: Windows (Node v22, Google Chrome 156.0, CDP WebSocket)\n\n`;
-  md += '| Target | URL | Frames | Elements | Truncated | Token Est. | Latency p50 | Latency p95 |\n';
-  md += '|---|---|---|---|---|---|---|---|\n';
-
-  for (const r of results) {
-    md += `| ${r.target} | \`${r.url}\` | ${r.frameCount} | ${r.elementCount} | ${r.truncated} | **${r.tokenEstimate}** | ${r.p50Ms} ms | ${r.p95Ms} ms |\n`;
-  }
-
-  md += '\n## Analysis and Verification against Exit Gates\n\n';
-  md += '1. **Token Constraint Verification:** All measured initial snapshots are well under the 2,000 to 4,000 token ceiling.\n';
-  md += '2. **Frame Model Verification:** Cross-origin OOPIF frame resolution correctly yields 2 distinct frames and captures elements across child sessions.\n';
-  md += '3. **Sibling Collapse & Element Cap:** 500-row list correctly collapses repetitive rows into first 3 + counter and stays bounded by the 150-element cap.\n';
-  md += '4. **Latency Verification:** Median capture time (p50) remains well under 250ms on local pages and under 500ms on external web pages.\n';
-
-  const outPath = path.resolve(__dirname, '../docs/probe-results.md');
-  fs.writeFileSync(outPath, md, 'utf8');
-  console.log(`Saved probe results to ${outPath}`);
+  const lines = [
+    '# Probe results',
+    '',
+    `Recorded ${new Date().toISOString()} by \`scripts/run-probes.ts\`. Headless Chrome, viewport 1280x800, Node ${process.version}.`,
+    '',
+    'Skim tokens are estimated at 3.5 characters per token. Latency is the time for one `Perceiver.capture()` (frame discovery, accessibility tree, DOMSnapshot, extraction), measured after the load event; it does not include rendering the skim.',
+    '',
+    '| Target | Frames | Refs | Skim tokens | Capture p50 | Capture p95 | Note |',
+    '|---|---|---|---|---|---|---|',
+    ...rows.map(
+      (row) =>
+        `| ${row.name} | ${row.frames} | ${row.refs} | ${row.skimTokens} | ${row.p50} ms | ${row.p95} ms | ${row.note} |`,
+    ),
+    '',
+    'Real-site results depend on the live page at the time of recording and on network speed while the page settles.',
+    '',
+  ];
+  const outPath = path.resolve(process.cwd(), 'docs/probe-results.md');
+  fs.writeFileSync(outPath, lines.join('\n'), 'utf8');
+  console.log(`Wrote ${outPath}`);
 }
 
-main().catch(console.error);
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exit(1);
+});

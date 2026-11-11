@@ -1,200 +1,70 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="Aether: Authentic Agentic Browser Engine" width="700"/>
+  <img src="assets/logo.svg" alt="Aether" width="700"/>
 </p>
 
-<p align="center">
-  <strong>An authentic, engine-first agentic browser built on stock Google Chrome.</strong><br/>
-  Powered by flat CDP sessions, delta-first perception, trusted native inputs, and zero-token human takeover.
-</p>
+# Aether
 
-<p align="center">
-  <a href="#benchmark-results-step-1--step-2-baseline"><img src="https://img.shields.io/badge/Tokens_Saved-90%25+-00F0FF.svg?style=flat-square" alt="Token Savings"/></a>
-  <a href="#acceptance-tests"><img src="https://img.shields.io/badge/Vitest_Tests-12%2F12_Passed-10B981.svg?style=flat-square" alt="Tests"/></a>
-  <a href="#quickstart-how-to-test"><img src="https://img.shields.io/badge/Chrome_Engine-Flat_CDP_125+-7000FF.svg?style=flat-square" alt="CDP Flat Sessions"/></a>
-  <a href="https://github.com/Priyank911/Aether"><img src="https://img.shields.io/badge/GitHub-Priyank911%2FAether-blue.svg?style=flat-square&logo=github" alt="GitHub Repo"/></a>
-</p>
+Aether lets an MCP agent (Claude Code, Codex, Cursor, or any MCP host) use your real, logged-in Chrome the way a person does: glance at the page, look closer where it matters, act, and check what changed. It returns compact text instead of whole pages, and hands control to you when a step needs you.
 
----
+Aether has no model of its own. The MCP host supplies the model and the agent loop; Aether is the browser engine and tool server. Design, decisions and their evidence are in [docs/PLAN.md](docs/PLAN.md).
 
-## ⚡ The Core Problem Aether Solves
+## How a step works
 
-Most AI web agents are financially and computationally impractical because:
-1. **The Page Re-Send Tax:** Frameworks like Playwright MCP dump the entire 50,000-token HTML page or high-resolution screenshot into the model on every single turn. Playwright MCP averages **97,000 tokens per completed task**.
-2. **Untrusted JS Events Fail:** Modern Single Page Apps (React, Vue, Next.js) reject synthetic JavaScript clicks (`element.click()`) because `event.isTrusted === false`.
-3. **The Fork/Electron Trap:** Forking Chromium requires 100GB of disk, 5-hour builds, and endless security merge conflicts. Wrapping in Electron breaks Chrome Web Store extensions and forces rewriting browser UI.
-4. **The Switching Barrier:** Nobody wants to abandon their daily Google Chrome where active logins, cookies, passwords, and work profiles already live.
+1. `open` loads a URL and returns a **skim**: what is on screen, grouped by region, with refs like `[e12]`, and one summary line per region for what is off screen (`[e43] main: 231 more below (116 link, 115 heading): look ref=e43`). The skim fits in 1,200 tokens.
+2. `look ref=e43` expands a region, `look as=text` reads it as markdown, and `find` searches the whole page including off-screen content.
+3. `act` runs up to 8 actions with trusted Chrome input (`click`, `fill`, `key`, `hover`, `scroll`, `dialog`, `upload`) and returns only what changed:
 
-**Aether's Solution:** Keep stock Google Chrome as the UI, connect via flat Chrome DevTools Protocol (CDP) sessions, reduce perception down to **monotonic refs + delta updates**, and execute genuine OS-level mouse and keyboard events.
+   ```
+   step 4 ok 3/3 | url unchanged
+   ~ [e12] textbox "Email" value="a@b.co"
+   + [e31] alert "Enter a valid phone number"
+   text + "2 items in your cart"
+   ```
 
----
+4. Steps that need you are held until you answer in the side panel: questions (`ask`), approvals for irreversible steps (buy, send, delete, submitting personal or payment details, uploads, model-built URLs carrying data to a new site), and anything only you may do (passwords, codes, CAPTCHAs).
+5. `memory` recalls preferences and routes that worked before on a site; `done` ends the run and stores the route.
 
-## 🚀 Quickstart: How to Test Right Now
+Everything taken from a page is returned inside `<page untrusted nonce=... origin=...>` tags with a fresh nonce per call. Passwords, one-time codes and card numbers are masked as `***` in every view and are never stored.
 
-### 1. Watch Aether Type & Click Live (`pnpm demo`)
-Launches Google Chrome visibly on your desktop, loads an interactive form, perceives the elements, executes 5 batched native actions (typing text, selecting dropdown, checking boxes, clicking submit), and prints the 62-token delta before cleanly shutting down:
+## In Chrome
 
-```bash
-git clone https://github.com/Priyank911/Aether.git
-cd Aether
+- The agent works only in tabs inside a blue **Aether** tab group, never in your other tabs.
+- While it acts, a thin blue light runs along the edge of the page, with a small pill showing the current step, **Take over** and **Stop**. When it needs you, the light turns amber and the group title reads "Aether: needs you".
+- The side panel shows the connection, the step list, one card for whatever is waiting on you, and a **Memory** tab where you can see, edit and delete what Aether remembers, or turn memory off.
+- Chrome shows its "started debugging this browser" bar while the agent is attached. That is Chrome's own notice for the debugger permission.
+
+## Set up
+
+See [docs/SETUP.md](docs/SETUP.md). In short: `pnpm install`, `pnpm extension:build`, `pnpm native-host:build`, load `apps/extension/.output/chrome-mv3` unpacked, register the native host with its extension ID, and add `pnpm --dir <repo> mcp` to your MCP host.
+
+## Develop
+
+```powershell
 pnpm install
-pnpm build
-pnpm demo
+pnpm typecheck
+pnpm lint        # Biome through its WebAssembly build; pnpm lint:native runs the CLI where biome.exe is allowed
+pnpm test        # builds the extension, then runs unit, fixture, MCP, bridge and real-extension tests
+pnpm probe https://en.wikipedia.org/wiki/Alan_Turing --text --find "Bletchley"
+pnpm demo        # headed walkthrough on the form fixture
+pnpm mcp --direct --headless   # MCP server on an isolated Chrome, for deterministic runs
 ```
 
-### 2. Inspect Any Real Website with Visible Chrome (`--headed`)
-Opens a visible Chrome window, navigates to any URL, extracts all actionable elements into short references (`[e1]`, `[e2]`), and prints the token estimate:
-
-```bash
-pnpm probe "https://duckduckgo.com" --headed
-```
-
-Or run headless in under 180 ms:
-```bash
-pnpm probe "https://github.com"
-```
-
-### 3. Run the Automated Test Suite
-Runs all 12 unit and end-to-end acceptance tests across local fixtures (including out-of-process cross-origin iframes, shadow DOM, forms, and 500-row lists):
-
-```bash
-pnpm test
-```
-
-### 4. Connect an MCP host
-
-Aether exposes its browser tools through a local stdio MCP server. Run `pnpm build`, then configure the MCP host to launch the compiled server. It launches an isolated Chrome profile and keeps JSON-RPC on stdout. On Windows, configure the host to run:
-
-```json
-{
-  "mcpServers": {
-    "aether": {
-      "command": "node",
-      "args": ["D:\\Agentic Browser\\aether\\apps\\cli\\dist\\index.js", "mcp", "--headless"]
-    }
-  }
-}
-```
-
-The server advertises `navigate`, `act`, `find`, `read`, `screenshot`, `ask`, and `done`. Page-derived text is returned inside `<page untrusted>` tags. Use `pnpm mcp` to launch a visible Chrome window or pass `--headless` for an isolated headless run.
-
----
-
-## 🔬 Benchmark Results (Step 1 & Step 2 Baseline)
-
-| Target | URL | Frames | Elements | Truncated | Token Est. | Latency (p50) |
-|---|---|:---:|:---:|:---:|:---:|:---:|
-| **Simple Form Fixture** | `localhost:4101/form.html` | 1 | 12 | `false` | **118** | 6.25 ms |
-| **Action Delta (Post-Batch)** | `form.html` (5 actions) | 1 | Changed | `false` | **62** | 12.40 ms |
-| **Nested Iframes Fixture** | `localhost:4101/nested-iframes.html` | 3 | 6 | `false` | **100** | 7.50 ms |
-| **Cross-Origin OOPIF Fixture** | `localhost:4101/cross-origin.html` | 2 | 4 | `false` | **73** | 6.97 ms |
-| **Shadow DOM Fixture** | `localhost:4101/shadow-dom.html` | 1 | 3 | `false` | **49** | 2.34 ms |
-| **500-Row List Fixture** | `localhost:4101/long-list.html` | 1 | 4 | `false` | **72** | 109.69 ms |
-| **DuckDuckGo Search** | `https://duckduckgo.com` | 1 | 109 | `false` | **1,221** | 72.30 ms |
-| **GitHub Public** | `https://github.com` | 1 | 76 | `false` | **889** | 186.41 ms |
-| **Hacker News** | `https://news.ycombinator.com` | 1 | 5 | `false` | **46** | 74.07 ms |
-| **Example Domain** | `https://example.com` | 1 | 1 | `false` | **19** | 3.38 ms |
-
-*Initial page outlines fit under 1,300 tokens (target was $\le 2,000$), and subsequent deltas fit under 100 tokens (target was $\le 300$).*
-
----
-
-## 🏛️ Architecture & Execution Flow
+## Layout
 
 ```
-Chrome (UI, tabs, profile, extensions)
-   │
-   ├─► Direct CDP (WebSocket)  [Headless / Evals / CLI / Tests]
-   └─► chrome.debugger + Native Messaging Host  [Real Logged-in Profile]
-                               │
-                               ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │                    AETHER ENGINE DAEMON                     │
-  │                                                             │
-  │   ┌───────────────────────┐      ┌───────────────────────┐  │
-  │   │       PERCEIVER       │      │         ACTOR         │  │
-  │   │ - AXTree Extraction   │      │ - Node Resolver       │  │
-  │   │ - Sibling Collapser   │      │ - BoxModel Center     │  │
-  │   │ - Monotonic Refs (e1) │      │ - CDP Input Dispatch  │  │
-  │   │ - Delta Diff Engine   │      │ - AX Settle Detector  │  │
-  │   └───────────▲───────────┘      └───────────▲───────────┘  │
-  │               │                              │              │
-  │   ┌───────────┴───────────┐      ┌───────────┴───────────┐  │
-  │   │       BRAIN LOOP      │      │      POLICY GATE      │  │
-  │   │ - Thin Loop (<1k tools│      │ - Irreversible Blocks │  │
-  │   │ - Model Adapters      │      │ - Password Redaction  │  │
-  │   │ - Prompt Caching      │      │ - Non-blocking Handoff│  │
-  │   └───────────────────────┘      └───────────────────────┘  │
-  └──────────────────────────────┬──────────────────────────────┘
-                                 │
-                   ┌─────────────┴─────────────┐
-                   ▼                           ▼
-          [Anthropic / OpenAI]        [Model Context Protocol]
-          LLM Prompt Pipeline         Cursor & Claude Code
+packages/shared      zod schemas for tools and every wire message, shared constants
+packages/cdp         CDP client over WebSocket, pipe, or the extension bridge; Chrome launcher
+packages/perceiver   capture (accessibility tree + DOMSnapshot), refs, skim, focus, text, find, delta
+packages/actor       trusted input, fill, dialogs, uploads, settle, batch rules
+packages/policy      URL boundary and provenance, action classifier, untrusted wrapper
+packages/memory      SQLite memory, run log, file logger
+apps/cli             probe, MCP server, run state machine, extension bridge
+apps/extension       MV3 service worker, page overlay, side panel
+apps/native-host     tells the extension where the engine listens
+fixtures             local test pages: forms, frames, shadow DOM, tables, overlays, dialogs, uploads
+scripts/spikes       the spikes the plan calls for; results in docs/SPIKES.md
 ```
 
----
+## Status
 
-## 🛠️ The Two Subsystems Completed
-
-### 1. Perceiver Engine (`@aether/perceiver`)
-- **Accessibility.getFullAXTree:** Bypasses non-semantic HTML nodes and evaluates accessibility primitives.
-- **Monotonic Ref Registry:** Assigns short identifiers (`[e1]`, `[e2]`, ...) mapped to `(frameOrdinal, backendDOMNodeId)`. On page navigation, mappings reset but the counter advances, preventing stale ref collisions.
-- **Sibling Collapser:** Automatically collapses runs of 6 or more identical sibling elements (e.g., search feeds, catalog lists) into the first 3 elements plus an inline summary line:
-  ```text
-  [e1] link "Home"
-  [e2] textbox "Search"
-  ... 47 more similar listitems (use find or read)
-  ```
-- **Delta-First Serialization:** On subsequent steps, sends only $+$, $\sim$, $-$ element modifications.
-
-### 2. Physical Actor (`@aether/actor`)
-- **Coordinate Resolution:** Resolves any `[ref]` to `backendDOMNodeId`, requests `DOM.getBoxModel`, and computes the center of the 8-point content quad:
-  $$\text{center}_x = \frac{x_1 + x_3}{2}, \quad \text{center}_y = \frac{y_1 + y_3}{2}$$
-- **Trusted Synthetic Events:** Dispatches genuine CDP events (`mouseMoved`, `mousePressed`, `mouseReleased`, `insertText`, `mouseWheel`) that satisfy `event.isTrusted === true`.
-- **Multi-Action Batching:** Executes up to 5 actions sequentially in a single model turn (e.g., filling multiple form inputs and clicking submit).
-- **Structural DOM-Settle:** Replaces brittle timeouts with AXTree structural hashing (polling every 150 ms until consecutive hashes match, capped at 2.5s).
-
----
-
-## 📦 Monorepo Structure
-
-```
-aether/
-├── assets/
-│   └── logo.svg        # Official vector brand logo
-├── packages/
-│   ├── shared/         # Zod schemas, ElementNode, FrameInfo, Delta, Constants
-│   ├── cdp/            # WebSocket JSON-RPC CDP client, CDPSession, FrameManager, ChromeLauncher
-│   ├── perceiver/      # Monotonic RefRegistry (e1..), AXExtractor, SiblingCollapser, OutlineSerializer
-│   └── actor/          # NodeResolver, InputDispatcher, DOMSettleDetector, Actor
-├── apps/
-│   └── cli/            # `aether probe <url> [--headed]` CLI command
-├── fixtures/           # Multi-port test server (localhost:4101 & 127.0.0.1:4102 for OOPIFs)
-├── scripts/
-│   ├── demo-live.ts    # Interactive headed action demo (`pnpm demo`)
-│   └── run-probes.ts   # Probe benchmark suite
-├── tests/
-│   ├── acceptance.test.ts  # 7 Perceiver & frame acceptance tests
-│   └── actor.test.ts       # 5 Actor input & batching tests
-├── docs/               # PLAN.md, METRICS.md, probe-results.md
-└── AGENTS.md           # Master engineering constraints
-```
-
----
-
-## 🗺️ Roadmap & Current Status
-
-| Step | Milestone | Status | Deliverables |
-|---|---|:---:|---|
-| **Step 1** | **Engine Skeleton & Perceiver v0** | ✅ **Done** | Monorepo, flat CDP client, OOPIF frame tree, AXTree extractor, monotonic refs, SiblingCollapser, probe CLI. |
-| **Step 2** | **Physical Actor** | ✅ **Done** | NodeResolver, BoxModel center quad calculation, trusted CDP mouse/keyboard dispatch, action batching, AX settle detector. |
-| **Step 3** | **Brain Loop & MCP Server** | ⏳ *Next* | Thin loop, 7 compact tools (<1,000 tokens), prompt caching, LLM adapters (Claude/OpenAI/Gemini), Model Context Protocol server. |
-| **Step 4** | **Companion Extension & Native Host** | ⏳ *Pending* | MV3 extension for Chrome/Edge/Brave, length-prefixed stdio Native Messaging host, React side panel. |
-| **Step 5** | **Visual Feedback & Ghost Cursor** | ⏳ *Pending* | Live SVG ghost cursor glide, element pulse rings, zero-token element picking mode. |
-| **Step 6** | **Policy Gate & Safety Hardening** | ⏳ *Pending* | Payment/delete irreversible action blockers, password/CVV human-must-perform gate, injection defenses. |
-
----
-
-## 📄 License
-
-MIT © 2026 Priyank / Aether Contributors
+Steps 0 to 6 of the plan are built and tested. Measured skim sizes and capture times are in [docs/probe-results.md](docs/probe-results.md). Step 7, the token comparison against Playwright MCP and browser-use, needs recorded runs with a model and has not been done, so no token-saving figure is claimed yet.

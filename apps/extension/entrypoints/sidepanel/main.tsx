@@ -1,98 +1,118 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { BridgeMessageSchema, BridgeStatusSchema, type BridgeStatus, type HandoffRecord } from '@aether/shared';
+import type { HumanReply, RunStateFrame } from '@aether/shared';
+import { MemoryTab } from './MemoryTab.js';
+import { PendingCard } from './PendingCard.js';
+import { useAether } from './use-aether.js';
 import './style.css';
 
+const CONNECTION_TEXT: Record<string, string> = {
+  no_host: 'Native host missing',
+  waiting_engine: 'Waiting for your agent',
+  connecting: 'Connecting',
+  connected: 'Connected',
+};
+
+function stateText(frame: RunStateFrame | undefined): string {
+  if (!frame || frame.state === 'idle') return frame?.label ?? 'Idle';
+  if (frame.state === 'waiting_human') return 'Waiting for you';
+  return 'Working';
+}
+
+function time(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 function SidePanel() {
-  const [state, setState] = React.useState<BridgeStatus['state']>('disconnected');
-  const [events, setEvents] = React.useState<BridgeStatus[]>([]);
-  const [tabTitle, setTabTitle] = React.useState('No active tab');
-  const [handoff, setHandoff] = React.useState<HandoffRecord | undefined>(undefined);
+  const { snapshot, send } = useAether();
+  const { connection, frame, agentTab, recent } = snapshot;
+  const [notice, setNotice] = React.useState<string>();
+  const [view, setView] = React.useState<'run' | 'memory'>('run');
+  const acting = frame?.state === 'acting' || frame?.state === 'resuming';
+  const reply = (kind: HumanReply['kind'], text?: string): void => {
+    if (frame?.pending) void send({ type: 'aether.reply', id: frame.pending.id, kind, text });
+  };
 
-  React.useEffect(() => {
-    void chrome.tabs.query({ active: true, lastFocusedWindow: true }).then((tabs) => {
-      const title = tabs[0]?.title;
-      if (title) setTabTitle(title);
-    });
-    const listener = (raw: unknown) => {
-      const parsed = BridgeMessageSchema.safeParse(raw);
-      if (!parsed.success) return;
-      const status = BridgeStatusSchema.safeParse(parsed.data);
-      if (!status.success) return;
-      setState(status.data.state);
-      setEvents((current) => [status.data, ...current].slice(0, 8));
-      if (status.data.handoff) setHandoff(status.data.handoff);
-      else if (status.data.state !== 'waiting_human') setHandoff(undefined);
-    };
-    chrome.runtime.onMessage.addListener(listener);
-    void chrome.runtime.sendMessage({ type: 'aether.getStatus' }).then((response: unknown) => {
-      if (!response || typeof response !== 'object' || !('status' in response) || !('recent' in response)) return;
-      const current = BridgeStatusSchema.safeParse(response.status);
-      if (current.success) {
-        setState(current.data.state);
-        if (current.data.handoff) setHandoff(current.data.handoff);
-      }
-      if (Array.isArray(response.recent)) {
-        setEvents(response.recent.map((item: unknown) => BridgeStatusSchema.safeParse(item))
-          .filter((item) => item.success)
-          .map((item) => item.data));
-      }
-    }).catch(() => undefined);
-    return () => chrome.runtime.onMessage.removeListener(listener);
-  }, []);
+  return (
+    <main className={`panel state-${frame?.state ?? 'idle'}`}>
+      <header className="head">
+        <span className="wordmark">Aether</span>
+        <span className={`conn conn-${connection.state}`} title={connection.detail}>
+          {CONNECTION_TEXT[connection.state]}
+        </span>
+      </header>
 
-  const stateLabel =
-    state === 'connected' ? 'Connected'
-    : state === 'step' ? 'Agent active'
-    : state === 'waiting_human' ? 'Waiting for you'
-    : 'Disconnected';
+      {connection.state !== 'connected' && <p className="hint">{connection.detail}</p>}
 
-  return <main className="panel-shell">
-    <header className="topbar">
-      <div className="brand-mark" aria-hidden="true"><span /></div>
-      <div><p className="eyebrow">AETHER / BROWSER ENGINE</p><h1>Activity</h1></div>
-      <span className={`connection-dot ${state}`} title={stateLabel} aria-hidden="true" />
-    </header>
-
-    <section className="session-block" aria-label="Current browser tab">
-      <div className="section-label"><span>ACTIVE TAB</span><span className="live-label">LIVE</span></div>
-      <h2>{tabTitle}</h2>
-      <p>{stateLabel}</p>
-    </section>
-
-    {state === 'waiting_human' && handoff && (
-      <section className="handoff-card" aria-label="Human takeover required">
-        <div className="section-label"><span>ACTION REQUIRED</span></div>
-        <p className="handoff-question">{handoff.question}</p>
-        {handoff.options && handoff.options.length > 0 && (
-          <div className="handoff-options">
-            {handoff.options.map((opt) => (
-              <button key={opt} className="handoff-option-btn" type="button">{opt}</button>
-            ))}
-          </div>
-        )}
-        <button className="takeover-btn" type="button" aria-label="Take over control from the agent">
-          Take Over
+      <nav className="views" aria-label="Views">
+        <button type="button" aria-pressed={view === 'run'} onClick={() => setView('run')}>
+          Run
         </button>
+        <button type="button" aria-pressed={view === 'memory'} onClick={() => setView('memory')}>
+          Memory
+        </button>
+      </nav>
+
+      {view === 'memory' && <MemoryTab send={send} connected={connection.state === 'connected'} />}
+      {view === 'run' && (
+        <>
+
+      <section className="tab">
+        <p className="eyebrow">Agent tab</p>
+        <h1>{agentTab.title}</h1>
+        <p className="status">
+          <span className="status-dot" />
+          {stateText(frame)}
+          {frame && frame.state !== 'idle' && <span className="status-label"> · {frame.label}</span>}
+        </p>
+        <div className="row">
+          <button
+            type="button"
+            onClick={() =>
+              void send({ type: 'aether.adopt_tab' }).then((response) => {
+                const result = response as { ok?: boolean; error?: string } | undefined;
+                setNotice(result?.ok ? 'This tab is now the agent tab.' : (result?.error ?? 'Could not use this tab.'));
+              })
+            }
+          >
+            Let Aether use this tab
+          </button>
+          {acting && (
+            <button type="button" onClick={() => void send({ type: 'aether.control', kind: 'takeover' })}>
+              Take over
+            </button>
+          )}
+          {frame && frame.state !== 'idle' && (
+            <button type="button" className="danger" onClick={() => void send({ type: 'aether.control', kind: 'stop' })}>
+              Stop run
+            </button>
+          )}
+        </div>
+        {notice && <p className="hint">{notice}</p>}
       </section>
-    )}
 
-    <section className="activity-section" aria-label="Recent agent activity">
-      <div className="section-label"><span>RECENT STEPS</span><span>{String(events.length).padStart(2, '0')}</span></div>
-      {events.length === 0 ? <div className="empty-state">
-        <div className="empty-glyph" aria-hidden="true">···</div>
-        <h2>Standing by</h2>
-        <p>When your MCP agent acts in this tab, its latest step will appear here.</p>
-      </div> : <ol className="timeline">
-        {events.map((event, index) => <li className={`${index === 0 ? 'current' : ''} ${event.state === 'waiting_human' ? 'waiting' : ''}`} key={`${event.timestamp}-${event.label}`}>
-          <span className="timeline-marker" aria-hidden="true" />
-          <div><p>{event.label}</p><time>{new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
-        </li>)}
-      </ol>}
-    </section>
+      {frame?.pending && <PendingCard key={frame.pending.id} pending={frame.pending} reply={reply} />}
 
-    <footer><span className="footer-line" /><span>CONTROL STAYS WITH YOU</span><span className="footer-line" /></footer>
-  </main>;
+      <section className="steps" aria-label="Steps">
+        <p className="eyebrow">Steps</p>
+        {recent.length === 0 ? (
+          <p className="empty">When your MCP agent starts, each step appears here.</p>
+        ) : (
+          <ol>
+            {recent.map((entry) => (
+              <li key={`${entry.step}-${entry.timestamp}-${entry.state}`} className={`step step-${entry.state}`}>
+                <span className="step-n">{entry.step}</span>
+                <span className="step-label">{entry.label}</span>
+                <time>{time(entry.timestamp)}</time>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+        </>
+      )}
+    </main>
+  );
 }
 
 const rootElement = document.getElementById('root');

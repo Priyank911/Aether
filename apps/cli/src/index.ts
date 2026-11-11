@@ -9,12 +9,16 @@ async function main() {
   if (command === 'probe') {
     const url = args[1];
     if (!url) {
-      console.error('Usage: aether probe <url> [--headed]');
+      console.error('Usage: aether probe <url> [--headed] [--text] [--find <query>]');
       process.exit(1);
     }
-    const isHeaded = args.includes('--headed') || args.includes('--visible');
+    const findIndex = args.indexOf('--find');
     try {
-      await runProbe(url, true, !isHeaded);
+      await runProbe(url, {
+        headless: !args.includes('--headed'),
+        text: args.includes('--text'),
+        find: findIndex >= 0 ? args[findIndex + 1] : undefined,
+      });
     } catch (err) {
       console.error('Probe failed:', err);
       process.exit(1);
@@ -29,7 +33,7 @@ async function main() {
   } else {
     console.log(`Aether: Authentic Agentic Browser Engine
 Commands:
-  probe <url> [--headed]    Inspect a web page outline, element refs, tokens and frames
+  probe <url> [--headed] [--text] [--find <q>]  Print the skim, token count and capture time for a page
   mcp [--direct] [--headless]  Start MCP over the extension bridge (or Direct CDP for tests)
 `);
   }

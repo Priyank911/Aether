@@ -1,118 +1,91 @@
-import { CDPClient, ChromeLauncher, FrameManager, type CDPSession } from '@aether/cdp';
-import { Perceiver } from '@aether/perceiver';
+import { CDPClient, ChromeLauncher, type CDPSession } from '@aether/cdp';
+import { Perceiver, renderFind, renderSkim, renderText, type PageModel } from '@aether/perceiver';
+
+export interface ProbeOptions {
+  headless?: boolean;
+  verbose?: boolean;
+  /** Also print the text view. */
+  text?: boolean;
+  /** Also run find with this query. */
+  find?: string;
+}
 
 export interface ProbeResult {
   url: string;
   title: string;
-  framesCount: number;
-  elementCount: number;
-  tokenEstimate: number;
-  truncated: boolean;
-  captureTimeMs: number;
-  outlineText: string;
+  frames: number;
+  refs: number;
+  skimTokens: number;
+  captureMs: number;
+  skim: string;
+  model: PageModel;
 }
 
-export async function runProbe(
-  url: string,
-  verbose = true,
-  headless = true,
-): Promise<ProbeResult> {
-  const browser = await ChromeLauncher.launch({ headless });
-  let client: CDPClient | null = null;
+async function navigate(session: CDPSession, url: string, timeoutMs = 30000): Promise<void> {
+  const loaded = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    session.once('Page.loadEventFired', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  await session.send('Page.navigate', { url }, timeoutMs);
+  await loaded;
+  await new Promise((resolve) => setTimeout(resolve, 500));
+}
 
+/** Open a URL in an isolated Chrome and print the skim the model would receive. */
+export async function runProbe(url: string, options: ProbeOptions = {}): Promise<ProbeResult> {
+  const browser = await ChromeLauncher.launch({ headless: options.headless ?? true });
+  let client: CDPClient | undefined;
   try {
     client = await CDPClient.connect(browser.wsEndpoint);
-
-    // Discover page target
-    const targetsResult = await client.sendCommand<{ targetInfos: Array<{ targetId: string; type: string }> }>(
-      'Target.getTargets',
-    );
-    const pageTarget = targetsResult.targetInfos.find((t) => t.type === 'page');
-    if (!pageTarget) {
-      throw new Error('No page target found in Chrome');
-    }
-
-    // Attach to page target
+    const targets = await client.sendCommand<{ targetInfos: Array<{ targetId: string; type: string }> }>('Target.getTargets');
+    const pageTarget = targets.targetInfos.find((target) => target.type === 'page');
+    if (!pageTarget) throw new Error('No page target found in Chrome');
     const session = await client.attachToTarget(pageTarget.targetId);
-
-    // Setup auto attach for child frames/OOPIFs
-    await session.send('Target.setAutoAttach', {
-      autoAttach: true,
-      waitForDebuggerOnStart: false,
-      flatten: true,
-    });
-
+    await session.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     await session.send('Page.enable');
+    await session.send('DOM.enable');
     await session.send('Accessibility.enable');
+    await session.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await navigate(session, url);
 
-    const frameManager = new FrameManager();
+    const perceiver = new Perceiver(session);
+    const started = performance.now();
+    const model = await perceiver.capture();
+    const captureMs = Number((performance.now() - started).toFixed(1));
+    const skim = renderSkim(model);
 
-    // Listen to session attach events
-    client.on('sessionAttached', (childSession: CDPSession) => {
-      frameManager.mapSessionToFrame(childSession.sessionId, childSession.targetId);
-    });
-
-    // Navigate to URL and wait for load
-    const loadPromise = new Promise<void>((resolve) => {
-      const handler = () => {
-        resolve();
-      };
-      session.once('Page.loadEventFired', handler);
-      // Fallback timeout in case loadEvent already fired or delayed
-      setTimeout(resolve, 8000);
-    });
-
-    await session.send('Page.navigate', { url });
-    await loadPromise;
-
-    // Small delay for DOM/AX tree to settle
-    await new Promise((r) => setTimeout(r, 400));
-
-    // Initialize frame tree
-    await frameManager.initFromSession(session, client);
-
-    // Capture with Perceiver
-    const perceiver = new Perceiver();
-    const startTime = performance.now();
-    const snapshot = await perceiver.capture(session, frameManager);
-    const captureTimeMs = Number((performance.now() - startTime).toFixed(2));
-
-    const result: ProbeResult = {
-      url: snapshot.url,
-      title: snapshot.title,
-      framesCount: snapshot.framesCount,
-      elementCount: snapshot.elementCount,
-      tokenEstimate: snapshot.tokenEstimate,
-      truncated: snapshot.truncated,
-      captureTimeMs,
-      outlineText: snapshot.formattedText,
-    };
-
-    if (verbose) {
-      console.log('----------------------------------------------------');
-      console.log(`URL: ${result.url}`);
-      console.log(`Title: "${result.title}"`);
-      console.log(`Frames: ${result.framesCount} | Elements: ${result.elementCount} | Truncated: ${result.truncated}`);
-      console.log(`Token Estimate: ~${result.tokenEstimate} tokens | Capture Time: ${result.captureTimeMs} ms`);
-      console.log('----------------------------------------------------');
-      console.log(result.outlineText);
-      console.log('----------------------------------------------------');
-    }
-
-    if (!headless) {
-      console.log('[Headed mode] Browser is open on screen. Waiting 5 seconds before closing...');
-      await new Promise((r) => setTimeout(r, 5000));
-    }
-
-    return result;
-  } finally {
-    if (client) {
-      try {
-        await client.close();
-      } catch {
-        // Ignore close error
+    if (options.verbose !== false) {
+      console.log(`--- ${model.url}`);
+      console.log(`frames=${model.frames.length} refs=${model.order.length} skim=${skim.tokens} tokens capture=${captureMs} ms`);
+      for (const warning of skim.warnings) console.log(`warning: ${warning}`);
+      console.log(skim.text);
+      if (options.text) {
+        const text = renderText(model);
+        console.log(`--- text view (${text.tokens} tokens)`);
+        console.log(text.text);
+      }
+      if (options.find) {
+        const found = renderFind(model, options.find);
+        console.log(`--- find (${found.tokens} tokens)`);
+        console.log(found.text);
       }
     }
+
+    return {
+      url: model.url,
+      title: model.title,
+      frames: model.frames.length,
+      refs: model.order.length,
+      skimTokens: skim.tokens,
+      captureMs,
+      skim: skim.text,
+      model,
+    };
+  } finally {
+    await client?.close().catch(() => undefined);
     await browser.kill();
   }
 }

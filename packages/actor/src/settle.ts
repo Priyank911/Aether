@@ -1,38 +1,44 @@
 import { createHash } from 'node:crypto';
 import type { CDPSession } from '@aether/cdp';
+import type { PageWatcher } from './page-watch.js';
 
-export class DOMSettleDetector {
-  public static async waitForSettle(
-    session: CDPSession,
-    intervalMs = 150,
-    timeoutMs = 2500,
-  ): Promise<void> {
-    const startTime = Date.now();
-    let previousHash: string | null = null;
+const SAMPLE_INTERVAL_MS = 150;
+const SETTLE_CAP_MS = 2500;
+const LOAD_CAP_MS = 10000;
 
-    while (Date.now() - startTime < timeoutMs) {
-      try {
-        const axResult = await session.send<{
-          nodes: Array<{ role?: { value?: unknown }; backendDOMNodeId?: number }>;
-        }>('Accessibility.getFullAXTree', { depth: 4 });
+interface AXSample {
+  nodes: Array<{ role?: { value?: unknown }; name?: { value?: unknown }; backendDOMNodeId?: number }>;
+}
 
-        const rawSignature = (axResult.nodes || [])
-          .map((n: { role?: { value?: unknown }; backendDOMNodeId?: number }) => `${n.role?.value}:${n.backendDOMNodeId}`)
-          .join('|');
-
-        const currentHash = createHash('sha1').update(rawSignature).digest('hex');
-
-        if (previousHash !== null && currentHash === previousHash) {
-          // Two consecutive samples match: DOM is settled
-          return;
-        }
-
-        previousHash = currentHash;
-      } catch {
-        // AXTree might fail mid-navigation; keep waiting
-      }
-
-      await new Promise((r) => setTimeout(r, intervalMs));
-    }
+async function structureHash(session: CDPSession): Promise<string | undefined> {
+  try {
+    const tree = await session.send<AXSample>('Accessibility.getFullAXTree', { depth: 6 });
+    const signature = tree.nodes
+      .map((node) => `${String(node.role?.value ?? '')}:${node.backendDOMNodeId ?? ''}:${String(node.name?.value ?? '').length}`)
+      .join('|');
+    return createHash('sha1').update(signature).digest('hex');
+  } catch {
+    return undefined;
   }
+}
+
+/**
+ * Wait until the page stops changing: first for a navigation the action
+ * started, then until two accessibility-structure samples 150 ms apart match.
+ * Returns false when the cap was reached, so the caller can say the page was
+ * still changing.
+ */
+export async function waitForSettle(session: CDPSession, watcher: PageWatcher): Promise<boolean> {
+  if (watcher.dialog) return true;
+  if (watcher.loading && !(await watcher.untilLoaded(LOAD_CAP_MS))) return false;
+  const started = Date.now();
+  let previous: string | undefined;
+  while (Date.now() - started < SETTLE_CAP_MS) {
+    if (watcher.dialog) return true;
+    const current = await structureHash(session);
+    if (current !== undefined && current === previous) return true;
+    previous = current;
+    await new Promise((resolve) => setTimeout(resolve, SAMPLE_INTERVAL_MS));
+  }
+  return false;
 }

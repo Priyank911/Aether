@@ -9,6 +9,11 @@ import {
   NESTED_IFRAMES_PAGE_HTML,
   SHADOW_DOM_PAGE_HTML,
   INJECTION_PAGE_HTML,
+  TABLE_PAGE_HTML,
+  COVERED_PAGE_HTML,
+  LONG_PAGE_HTML,
+  DIALOG_PAGE_HTML,
+  UPLOAD_PAGE_HTML,
 } from './pages.js';
 
 export interface FixtureServers {
@@ -43,6 +48,16 @@ export async function startFixtureServers(
       res.end(SHADOW_DOM_PAGE_HTML);
     } else if (url === '/long-list.html') {
       res.end(LONG_LIST_PAGE_HTML);
+    } else if (url === '/table.html') {
+      res.end(TABLE_PAGE_HTML);
+    } else if (url === '/covered.html') {
+      res.end(COVERED_PAGE_HTML);
+    } else if (url === '/long-page.html') {
+      res.end(LONG_PAGE_HTML);
+    } else if (url === '/upload.html') {
+      res.end(UPLOAD_PAGE_HTML);
+    } else if (url === '/dialog.html') {
+      res.end(DIALOG_PAGE_HTML);
     } else {
       res.statusCode = 404;
       res.end('<h1>404 Not Found</h1>');

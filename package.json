@@ -6,8 +6,9 @@
   "scripts": {
     "build": "pnpm -r run build",
     "typecheck": "pnpm --filter @aether/extension run prepare && tsc --build --verbose",
-    "lint": "biome lint .",
-    "test": "vitest run",
+    "lint": "node scripts/lint.mjs",
+    "lint:native": "biome lint .",
+    "test": "pnpm extension:build && vitest run",
     "test:watch": "vitest",
     "probe": "tsx apps/cli/src/index.ts probe",
     "mcp": "tsx apps/cli/src/index.ts mcp",
@@ -17,6 +18,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",
+    "@biomejs/js-api": "6.1.0",
+    "@biomejs/wasm-nodejs": "2.6.4",
     "@types/node": "^22.10.2",
     "@types/ws": "^8.5.13",
     "tsx": "^4.19.2",

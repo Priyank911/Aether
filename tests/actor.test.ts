@@ -1,211 +1,144 @@
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Actor } from '@aether/actor';
-import { CDPClient, ChromeLauncher, FrameManager, type LaunchedBrowser } from '@aether/cdp';
+import { Actor, PageWatcher } from '@aether/actor';
+import { CDPClient, ChromeLauncher, type CDPSession, type LaunchedBrowser } from '@aether/cdp';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
-import { Perceiver } from '@aether/perceiver';
+import { Perceiver, type PageModel } from '@aether/perceiver';
 
-describe('Step 2 Actor Tests: Trusted CDP Input Dispatch & DOM Settle', () => {
-  let fixtureServers: FixtureServers;
+function refOf(model: PageModel, role: string, nameIncludes: string): string {
+  for (const node of model.byRef.values()) {
+    if (node.role === role && node.name.includes(nameIncludes) && node.ref) return node.ref;
+  }
+  throw new Error(`No ${role} named like "${nameIncludes}"`);
+}
+
+describe('Actor: trusted CDP input against the latest capture', () => {
+  let fixtures: FixtureServers;
   let browser: LaunchedBrowser;
   let client: CDPClient;
 
   beforeAll(async () => {
-    fixtureServers = await startFixtureServers(4103, 4104);
+    fixtures = await startFixtureServers(4103, 4104);
     browser = await ChromeLauncher.launch({ headless: true });
     client = await CDPClient.connect(browser.wsEndpoint);
-  }, 25000);
+  }, 30000);
 
   afterAll(async () => {
-    if (client) {
-      try {
-        await client.close();
-      } catch {
-        // Ignore
-      }
-    }
-    if (browser) {
-      await browser.kill();
-    }
-    if (fixtureServers) {
-      await fixtureServers.close();
-    }
+    await client?.close().catch(() => undefined);
+    await browser?.kill();
+    await fixtures?.close();
   });
 
-  async function setupSession(url: string) {
-    const targets = await client.sendCommand<{ targetInfos: Array<{ targetId: string; type: string }> }>(
-      'Target.getTargets',
-    );
-    const pageTarget = targets.targetInfos.find((t) => t.type === 'page')!;
-    const session = await client.attachToTarget(pageTarget.targetId);
-
-    await session.send('Target.setAutoAttach', {
-      autoAttach: true,
-      waitForDebuggerOnStart: false,
-      flatten: true,
-    });
+  async function setup(path: string): Promise<{ session: CDPSession; actor: Actor; model: PageModel }> {
+    const { targetId } = await client.sendCommand<{ targetId: string }>('Target.createTarget', { url: 'about:blank' });
+    const session = await client.attachToTarget(targetId);
+    await session.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     await session.send('Page.enable');
     await session.send('DOM.enable');
     await session.send('Accessibility.enable');
-
-    const loadPromise = new Promise<void>((res) => {
-      session.once('Page.loadEventFired', () => res());
-      setTimeout(res, 5000);
+    const loaded = new Promise<void>((resolve) => {
+      session.once('Page.loadEventFired', () => resolve());
+      setTimeout(resolve, 5000);
     });
-    await session.send('Page.navigate', { url });
-    await loadPromise;
-    await new Promise((r) => setTimeout(r, 400));
-
-    const frameManager = new FrameManager();
-    await frameManager.initFromSession(session, client);
-
-    const perceiver = new Perceiver();
-    const actor = new Actor(session, frameManager, perceiver);
-
-    return { session, frameManager, perceiver, actor };
+    await session.send('Page.navigate', { url: `${fixtures.mainBaseUrl}/${path}` });
+    await loaded;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const perceiver = new Perceiver(session);
+    const model = await perceiver.capture();
+    return { session, actor: new Actor(perceiver, await PageWatcher.attach(session)), model };
   }
 
-  it('1. Types text into form fields using native CDP insertText', async () => {
-    const { session, actor, perceiver, frameManager } = await setupSession(
-      `${fixtureServers.mainBaseUrl}/form.html`,
-    );
+  async function readPageValue<T>(session: CDPSession, expression: string): Promise<T> {
+    const result = await session.send<{ result: { value: T } }>('Runtime.evaluate', { expression, returnByValue: true });
+    return result.result.value;
+  }
 
-    const initialSnapshot = await perceiver.capture(session, frameManager);
-    const nameInput = initialSnapshot.elements.find((e) => e.role === 'textbox' && e.name.includes('Full Name'));
-    expect(nameInput).toBeDefined();
-
-    const result = await actor.execute(
-      {
-        actions: [{ ref: nameInput!.ref, op: 'type', value: 'Jane Doe' }],
-        risk: 'reversible',
-        why: 'Fill user name',
-      },
-      initialSnapshot,
-      1,
-    );
-
+  it('fills a text field with trusted input, replacing what was there', async () => {
+    const { session, actor, model } = await setup('form.html');
+    const name = refOf(model, 'textbox', 'Full Name');
+    await actor.execute({ actions: [{ op: 'fill', ref: name, value: 'First' }], risk: 'reversible', why: 'Fill' });
+    const result = await actor.execute({ actions: [{ op: 'fill', ref: name, value: 'Jane Doe' }], risk: 'reversible', why: 'Refill' });
     expect(result.success).toBe(true);
-    expect(result.executedCount).toBe(1);
-
-    // Verify DOM value in browser
-    const evalRes = await session.send<{ result: { value: string } }>('Runtime.evaluate', {
-      expression: 'document.getElementById("username").value',
-      returnByValue: true,
-    });
-    expect(evalRes.result.value).toBe('Jane Doe');
+    expect(await readPageValue<string>(session, 'document.getElementById("username").value')).toBe('Jane Doe');
   });
 
-  it('2. Changes select dropdown value via select operation', async () => {
-    const { session, actor, perceiver, frameManager } = await setupSession(
-      `${fixtureServers.mainBaseUrl}/form.html`,
-    );
-
-    const initialSnapshot = await perceiver.capture(session, frameManager);
-    const selectElem = initialSnapshot.elements.find((e) => e.role === 'combobox' || e.name.includes('Country'));
-    expect(selectElem).toBeDefined();
-
-    const result = await actor.execute(
-      {
-        actions: [{ ref: selectElem!.ref, op: 'select', value: 'IN' }],
-        risk: 'reversible',
-        why: 'Select country India',
-      },
-      initialSnapshot,
-      1,
-    );
-
+  it('picks a select option by its visible label', async () => {
+    const { session, actor, model } = await setup('form.html');
+    const result = await actor.execute({
+      actions: [{ op: 'fill', ref: refOf(model, 'combobox', 'Country'), value: 'United Kingdom' }],
+      risk: 'reversible',
+      why: 'Choose the UK',
+    });
     expect(result.success).toBe(true);
-
-    const evalRes = await session.send<{ result: { value: string } }>('Runtime.evaluate', {
-      expression: 'document.getElementById("country").value',
-      returnByValue: true,
-    });
-    expect(evalRes.result.value).toBe('IN');
+    expect(result.notes).toEqual(['1: chose "United Kingdom"']);
+    expect(await readPageValue<string>(session, 'document.getElementById("country").value')).toBe('UK');
   });
 
-  it('3. Batches multiple form actions (type + select + click) in a single turn', async () => {
-    const { session, actor, perceiver, frameManager } = await setupSession(
-      `${fixtureServers.mainBaseUrl}/form.html`,
-    );
+  it('names the available options when the label does not exist', async () => {
+    const { actor, model } = await setup('form.html');
+    const result = await actor.execute({
+      actions: [{ op: 'fill', ref: refOf(model, 'combobox', 'Country'), value: 'Atlantis' }],
+      risk: 'reversible',
+      why: 'Choose a country',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('no option "Atlantis"; options are: United States, United Kingdom, India');
+  });
 
-    const initialSnapshot = await perceiver.capture(session, frameManager);
-    const nameInput = initialSnapshot.elements.find((e) => e.role === 'textbox' && e.name.includes('Full Name'))!;
-    const emailInput = initialSnapshot.elements.find((e) => e.role === 'textbox' && e.name.includes('Email'))!;
-    const checkbox = initialSnapshot.elements.find((e) => e.role === 'checkbox')!;
+  it('sets a checkbox to a state and leaves it alone when already there', async () => {
+    const { session, actor, model } = await setup('form.html');
+    const box = refOf(model, 'checkbox', 'newsletter');
+    await actor.execute({ actions: [{ op: 'fill', ref: box, value: 'true' }], risk: 'reversible', why: 'Subscribe' });
+    const again = await actor.execute({ actions: [{ op: 'fill', ref: box, value: 'true' }], risk: 'reversible', why: 'Subscribe again' });
+    expect(again.notes).toEqual(['1: already checked']);
+    expect(await readPageValue<boolean>(session, 'document.getElementById("newsletter").checked')).toBe(true);
+  });
 
-    const result = await actor.execute(
-      {
-        actions: [
-          { ref: nameInput.ref, op: 'type', value: 'Alice Smith' },
-          { ref: emailInput.ref, op: 'type', value: 'alice@example.com' },
-          { ref: checkbox.ref, op: 'click' },
-        ],
-        risk: 'reversible',
-        why: 'Batch fill registration form',
-      },
-      initialSnapshot,
-      1,
-    );
+  it('returns a header and a delta line for the changed field, not a snapshot', async () => {
+    const { actor, model } = await setup('form.html');
+    const ref = refOf(model, 'textbox', 'Full Name');
+    const result = await actor.execute({ actions: [{ op: 'fill', ref, value: 'Delta Test' }], risk: 'reversible', why: 'Check delta' });
+    expect(result.text.split('\n')[0]).toBe('step 1 ok 1/1 | url unchanged');
+    expect(result.text).toContain(`~ [${ref}] textbox "Full Name:" value="Delta Test"`);
+    expect(result.text).not.toContain('Submit Application');
+  });
 
+  it('scrolls the page with a trusted wheel event', async () => {
+    const { actor } = await setup('long-list.html');
+    const result = await actor.execute({ actions: [{ op: 'scroll', value: 'down' }], risk: 'read', why: 'See more' });
+    expect(result.text.split('\n')[0]).toMatch(/scroll 0% -> [1-9]\d*%/);
+  });
+
+  it('attaches a local file to a file input', async () => {
+    const { session, actor, model } = await setup('upload.html');
+    const input = [...model.byRef.values()].find((node) => node.name.includes('Resume'));
+    expect(input?.ref).toBeDefined();
+    const file = path.resolve('fixtures/package.json');
+    const result = await actor.execute({ actions: [{ op: 'upload', ref: input?.ref, value: file }], risk: 'reversible', why: 'Attach the resume' });
     expect(result.success).toBe(true);
-    expect(result.executedCount).toBe(3);
-
-    const evalRes = await session.send<{
-      result: { value: { name: string; email: string; newsletter: boolean } };
-    }>('Runtime.evaluate', {
-      expression: `({
-        name: document.getElementById('username').value,
-        email: document.getElementById('email').value,
-        newsletter: document.getElementById('newsletter').checked
-      })`,
-      returnByValue: true,
-    });
-
-    expect(evalRes.result.value.name).toBe('Alice Smith');
-    expect(evalRes.result.value.email).toBe('alice@example.com');
-    expect(evalRes.result.value.newsletter).toBe(true);
+    expect(result.notes).toEqual(['1: attached package.json']);
+    expect(await readPageValue<string>(session, "document.getElementById('chosen').textContent")).toBe('Chosen: package.json');
   });
 
-  it('4. Returns compact delta with modified element values', async () => {
-    const { actor, perceiver, session, frameManager } = await setupSession(
-      `${fixtureServers.mainBaseUrl}/form.html`,
-    );
-
-    const initialSnapshot = await perceiver.capture(session, frameManager);
-    const nameInput = initialSnapshot.elements.find((e) => e.role === 'textbox' && e.name.includes('Full Name'))!;
-
-    const result = await actor.execute(
-      {
-        actions: [{ ref: nameInput.ref, op: 'type', value: 'Delta Test' }],
-        risk: 'reversible',
-        why: 'Test delta reflection',
-      },
-      initialSnapshot,
-      1,
-    );
-
-    expect(result.delta.formattedText).toContain('step 1 ok');
-    expect(result.delta.formattedText).toContain(nameInput.ref);
+  it('refuses to upload a path that is not a file', async () => {
+    const { actor, model } = await setup('upload.html');
+    const input = [...model.byRef.values()].find((node) => node.name.includes('Resume'));
+    const result = await actor.execute({ actions: [{ op: 'upload', ref: input?.ref, value: path.resolve('fixtures') }], risk: 'reversible', why: 'Attach' });
+    expect(result.error).toContain('no file at');
   });
 
-  it('5. Handles invalid / stale ref gracefully without crashing', async () => {
-    const { actor, perceiver, session, frameManager } = await setupSession(
-      `${fixtureServers.mainBaseUrl}/form.html`,
-    );
-
-    const initialSnapshot = await perceiver.capture(session, frameManager);
-
-    const result = await actor.execute(
-      {
-        actions: [{ ref: 'e9999', op: 'click' }],
-        risk: 'read',
-        why: 'Click non-existent ref',
-      },
-      initialSnapshot,
-      1,
-    );
-
+  it('reports a stale ref without running anything', async () => {
+    const { actor } = await setup('form.html');
+    const result = await actor.execute({ actions: [{ op: 'click', ref: 'e9999' }], risk: 'read', why: 'Use a ref that does not exist' });
     expect(result.success).toBe(false);
     expect(result.executedCount).toBe(0);
-    expect(result.error).toContain('e9999');
+    expect(result.error).toBe('stale [e9999]: no longer on the page, nothing was done. Call look or find for current refs.');
+    expect(result.text.split('\n')[0]).toBe('step 1 failed 0/1 | url unchanged');
+  });
+
+  it('rejects an op that needs a ref when none is given', async () => {
+    const { actor } = await setup('form.html');
+    const result = await actor.execute({ actions: [{ op: 'click' }], risk: 'read', why: 'Missing ref' });
+    expect(result.error).toBe('click not done: click needs a ref');
   });
 });

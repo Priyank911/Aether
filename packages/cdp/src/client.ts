@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
-import WebSocket from 'ws';
 import { DEFAULT_CDP_TIMEOUT_MS } from '@aether/shared';
 import { CDPSession } from './session.js';
+import { WebSocketTransport, type CDPTransport } from './transport.js';
 
 interface PendingCommand {
   method: string;
@@ -24,41 +24,27 @@ interface CDPMessage {
 }
 
 export class CDPClient extends EventEmitter {
-  private ws: WebSocket | null = null;
+  private transport: CDPTransport | null = null;
   private nextId = 1;
   private pending = new Map<number, PendingCommand>();
   private sessions = new Map<string, CDPSession>();
   private closed = false;
 
   public static async connect(wsUrl: string): Promise<CDPClient> {
+    return CDPClient.over(await WebSocketTransport.connect(wsUrl));
+  }
+
+  /** A client over any transport: WebSocket, pipe, or the extension bridge. */
+  public static over(transport: CDPTransport): CDPClient {
     const client = new CDPClient();
-    await client.init(wsUrl);
+    client.transport = transport;
+    transport.onMessage((message) => client.handleMessage(message));
+    transport.onClose((reason) => client.onClose(reason));
     return client;
   }
 
-  private async init(wsUrl: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const socket = new WebSocket(wsUrl);
-      this.ws = socket;
-
-      socket.on('open', () => {
-        resolve();
-      });
-
-      socket.on('message', (data: WebSocket.RawData) => {
-        this.handleMessage(data.toString());
-      });
-
-      socket.on('error', (err: Error) => {
-        if (!this.closed) {
-          reject(err);
-        }
-      });
-
-      socket.on('close', () => {
-        this.onClose();
-      });
-    });
+  public get isClosed(): boolean {
+    return this.closed;
   }
 
   private handleMessage(raw: string): void {
@@ -106,6 +92,7 @@ export class CDPClient extends EventEmitter {
           params.sessionId,
           params.targetInfo.type,
           params.targetInfo.targetId,
+          msg.sessionId,
         );
         this.sessions.set(params.sessionId, newSession);
 
@@ -147,7 +134,7 @@ export class CDPClient extends EventEmitter {
     sessionId?: string,
     timeoutMs = DEFAULT_CDP_TIMEOUT_MS,
   ): Promise<T> {
-    if (this.closed || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (this.closed || !this.transport) {
       return Promise.reject(new Error('CDP connection is closed'));
     }
 
@@ -175,7 +162,13 @@ export class CDPClient extends EventEmitter {
         timer,
       });
 
-      this.ws?.send(JSON.stringify(message));
+      try {
+        this.transport?.send(JSON.stringify(message));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
@@ -200,12 +193,28 @@ export class CDPClient extends EventEmitter {
     return session;
   }
 
-  private onClose(): void {
+  /**
+   * The sessions behind this client are gone but the client stays usable, for
+   * example when the extension reconnects or the debugger detached. Pending
+   * commands fail as unverified and every session is marked detached.
+   */
+  public resetSessions(reason: string): void {
+    for (const cmd of this.pending.values()) {
+      clearTimeout(cmd.timer);
+      cmd.reject(new Error(`${reason} before ${cmd.method} replied; delivery is unverified`));
+    }
+    this.pending.clear();
+    for (const session of this.sessions.values()) session._onDetached();
+    this.sessions.clear();
+  }
+
+  private onClose(reason = 'closed'): void {
     if (this.closed) return;
     this.closed = true;
     for (const cmd of this.pending.values()) {
       clearTimeout(cmd.timer);
-      cmd.reject(new Error('CDP connection closed'));
+      // The command may have run before the reply was lost; callers must not replay input blindly.
+      cmd.reject(new Error(`CDP connection closed (${reason}) before ${cmd.method} replied; delivery is unverified`));
     }
     this.pending.clear();
     for (const session of this.sessions.values()) {
@@ -217,10 +226,7 @@ export class CDPClient extends EventEmitter {
 
   public async close(): Promise<void> {
     if (this.closed) return;
-    this.closed = true;
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.close();
-    }
-    this.onClose();
+    this.transport?.close();
+    this.onClose('closed by Aether');
   }
 }

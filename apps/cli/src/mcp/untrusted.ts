@@ -1,5 +1,6 @@
-import { ContentSanitizer } from '@aether/policy';
+import { wrapUntrusted } from '@aether/policy';
 
-export function wrapUntrustedPageText(text: string): string {
-  return ContentSanitizer.wrapUntrusted(text);
+/** Page-derived text for the model, inside the nonce-tagged untrusted wrapper. */
+export function wrapUntrustedPageText(text: string, url?: string): string {
+  return wrapUntrusted(text, url);
 }

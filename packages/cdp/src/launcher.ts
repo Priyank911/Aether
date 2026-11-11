@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { Readable, Writable } from 'node:stream';
+import { PipeTransport } from './transport.js';
 
 export interface LaunchOptions {
   executablePath?: string;
@@ -11,11 +13,18 @@ export interface LaunchOptions {
   additionalArgs?: string[];
   timeoutMs?: number;
   ephemeral?: boolean;
+  /** Speak CDP over --remote-debugging-pipe instead of a port. Needed to load unpacked extensions. */
+  pipe?: boolean;
+  /** Allow extensions; with pipe, Extensions.loadUnpacked becomes available. */
+  extensions?: boolean;
 }
 
 export interface LaunchedBrowser {
   process: ChildProcess;
+  /** Empty in pipe mode. */
   wsEndpoint: string;
+  /** Set in pipe mode. */
+  transport?: PipeTransport;
   userDataDir: string;
   kill: () => Promise<void>;
 }
@@ -75,7 +84,7 @@ export class ChromeLauncher {
     }
 
     const args = [
-      '--remote-debugging-port=0',
+      options.pipe ? '--remote-debugging-pipe' : '--remote-debugging-port=0',
       `--user-data-dir=${userDataDir}`,
       '--no-first-run',
       '--no-default-browser-check',
@@ -86,7 +95,6 @@ export class ChromeLauncher {
       '--disable-client-side-phishing-detection',
       '--disable-default-apps',
       '--disable-dev-shm-usage',
-      '--disable-extensions',
       '--disable-features=Translate,BackForwardCache,AcceptCHFrame',
       '--disable-hang-monitor',
       '--disable-ipc-flooding-protection',
@@ -96,6 +104,8 @@ export class ChromeLauncher {
       '--disable-sync',
       '--metrics-recording-only',
     ];
+
+    args.push(options.extensions ? '--enable-unsafe-extension-debugging' : '--disable-extensions');
 
     if (options.headless !== false) {
       args.push('--headless=new');
@@ -113,12 +123,16 @@ export class ChromeLauncher {
 
     const browserProcess = spawn(executable, args, {
       detached: process.platform !== 'win32',
-      stdio: ['ignore', 'ignore', 'ignore'],
+      stdio: options.pipe ? ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] : ['ignore', 'ignore', 'ignore'],
     });
 
-    const activePortFile = path.join(userDataDir, 'DevToolsActivePort');
-
-    const wsEndpoint = await ChromeLauncher.waitForPortFile(activePortFile, timeout, browserProcess);
+    let wsEndpoint = '';
+    let transport: PipeTransport | undefined;
+    if (options.pipe) {
+      transport = new PipeTransport(browserProcess.stdio[3] as Writable, browserProcess.stdio[4] as Readable);
+    } else {
+      wsEndpoint = await ChromeLauncher.waitForPortFile(path.join(userDataDir, 'DevToolsActivePort'), timeout, browserProcess);
+    }
 
     let killed = false;
     const kill = async () => {
@@ -162,6 +176,7 @@ export class ChromeLauncher {
     return {
       process: browserProcess,
       wsEndpoint,
+      transport,
       userDataDir,
       kill,
     };

@@ -10,7 +10,8 @@
     { "path": "../../packages/shared" },
     { "path": "../../packages/cdp" },
     { "path": "../../packages/perceiver" },
-    { "path": "../../packages/policy" }
+    { "path": "../../packages/policy" },
+    { "path": "../../packages/memory" }
   ],
   "include": ["src/**/*"]
 }

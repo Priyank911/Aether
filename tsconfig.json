@@ -6,6 +6,7 @@
     { "path": "./packages/perceiver" },
     { "path": "./packages/actor" },
     { "path": "./packages/policy" },
+    { "path": "./packages/memory" },
     { "path": "./fixtures" },
     { "path": "./apps/cli" },
     { "path": "./apps/native-host" },

@@ -1,36 +1,87 @@
-import { createServer, type IncomingMessage } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { createServer, type IncomingMessage } from 'node:http';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { EventEmitter } from 'node:events';
+import type { Duplex } from 'node:stream';
+import type { CDPTransport } from '@aether/cdp';
+import { BridgeConfigSchema, ExtensionMessageSchema, type EngineMessage, type RunStateFrame } from '@aether/shared';
 import { WebSocket, WebSocketServer } from 'ws';
-import { BridgeConfigSchema, BridgeMessageSchema, CdpWireMessageSchema } from '@aether/shared';
+import type { RunState } from '../run/run-state.js';
 
-const MAX_FRAME_BYTES = 10 * 1024 * 1024;
+/** No native messaging cap on this socket; large AX trees and screenshots fit. */
+const MAX_FRAME_BYTES = 256 * 1024 * 1024;
 const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
+const HELLO_TIMEOUT_MS = 5000;
+export const PING_INTERVAL_MS = 15000;
 
-export class LoopbackCdpBridge extends EventEmitter {
+function isLoopback(address: string | undefined): boolean {
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+}
+
+/** In-process CDP transport whose other end is the extension socket. */
+class ExtensionTransport implements CDPTransport {
+  private readonly listeners: Array<(message: string) => void> = [];
+  private readonly forward: (message: string) => boolean;
+
+  constructor(forward: (message: string) => boolean) {
+    this.forward = forward;
+  }
+
+  public send(message: string): void {
+    if (!this.forward(message)) throw new Error('the Aether extension is not connected: open Chrome with the Aether extension enabled');
+  }
+
+  public deliver(message: string): void {
+    for (const listener of this.listeners) listener(message);
+  }
+
+  public onMessage(listener: (message: string) => void): void {
+    this.listeners.push(listener);
+  }
+
+  /** The bridge outlives extension reconnects, so this transport never closes on its own. */
+  public onClose(): void {}
+
+  public close(): void {}
+}
+
+/**
+ * The engine end of the extension bridge. Events: `connected`, `disconnected`
+ * (reason), and `reset` (reason) whenever CDP sessions behind the extension
+ * are gone and every pending command must fail as unverified.
+ */
+export class ExtensionBridge extends EventEmitter {
+  public readonly transport: ExtensionTransport;
   private readonly token = randomBytes(32).toString('hex');
   private readonly configPath: string;
   private readonly server = createServer();
-  private readonly webSocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
-  private readonly pending = new Map<number, WebSocket>();
-  private readonly cdpClients = new Set<WebSocket>();
-  private extensionSocket?: WebSocket;
+  private readonly sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
+  private socket?: WebSocket;
   private port?: number;
+  private pingTimer?: ReturnType<typeof setInterval>;
+  private pingsSent = 0;
+  private lastPong = 0;
   private closed = false;
 
-  constructor(configPath = path.join(homedir(), '.aether', 'bridge.json')) {
+  private readonly pingIntervalMs: number;
+
+  constructor(configPath = path.join(homedir(), '.aether', 'bridge.json'), pingIntervalMs = PING_INTERVAL_MS) {
     super();
     this.configPath = configPath;
-    this.server.on('upgrade', (request, socket, head) => this.handleUpgrade(request, socket, head));
-    this.webSocketServer.on('connection', (socket, request) => this.handleConnection(socket, request));
+    this.pingIntervalMs = pingIntervalMs;
+    this.transport = new ExtensionTransport((message) => this.sendRaw(message));
+    this.server.on('upgrade', (request, socket, head) => this.upgrade(request, socket, head));
   }
 
-  public get cdpUrl(): string {
-    if (!this.port) throw new Error('MCP WebSocket bridge is not listening');
-    return `ws://127.0.0.1:${this.port}/cdp?token=${this.token}`;
+  public get connected(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN;
+  }
+
+  public get address(): { port: number; token: string } {
+    if (!this.port) throw new Error('the bridge is not listening');
+    return { port: this.port, token: this.token };
   }
 
   public async start(): Promise<void> {
@@ -41,154 +92,155 @@ export class LoopbackCdpBridge extends EventEmitter {
         resolve();
       });
     });
-
     const address = this.server.address();
-    if (!address || typeof address === 'string') throw new Error('Failed to read local bridge address');
+    if (!address || typeof address === 'string') throw new Error('Failed to read the bridge address');
     this.port = address.port;
     const config = BridgeConfigSchema.parse({ port: this.port, token: this.token });
     await mkdir(path.dirname(this.configPath), { recursive: true });
     await writeFile(this.configPath, JSON.stringify(config), { encoding: 'utf8', mode: 0o600 });
   }
 
+  /** Send every run-state frame to the extension, starting with the current one. */
+  public attachRun(run: RunState): void {
+    run.onFrame((frame: RunStateFrame) => this.send(frame));
+    this.on('connected', () => this.send(run.frame()));
+    this.on('reply', (reply) => run.receive(reply));
+    this.on('control', (control) => run.control(control));
+  }
+
   public async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    this.extensionSocket?.close(1001, 'MCP server closed');
-    for (const client of this.cdpClients) client.close(1001, 'MCP server closed');
-    this.webSocketServer.close();
-    if (this.server.listening) {
-      await new Promise<void>((resolve) => this.server.close(() => resolve()));
-    }
+    this.stopPings();
+    this.socket?.close(1001, 'Aether closed');
+    this.sockets.close();
+    if (this.server.listening) await new Promise<void>((resolve) => this.server.close(() => resolve()));
     try {
       const config = BridgeConfigSchema.parse(JSON.parse(await readFile(this.configPath, 'utf8')));
       if (config.token === this.token) await unlink(this.configPath);
     } catch {
-      // Another local MCP process may have replaced the bridge config.
+      // Another Aether process may have replaced the file.
     }
   }
 
-  private handleUpgrade(
-    request: IncomingMessage,
-    socket: import('node:stream').Duplex,
-    head: Buffer,
-  ): void {
+  /** Send an engine message to the extension, if it is connected. */
+  public publish(message: EngineMessage): void {
+    this.send(message);
+  }
+
+  private send(message: EngineMessage): void {
+    this.sendRaw(JSON.stringify(message));
+  }
+
+  private sendRaw(message: string): boolean {
+    if (this.socket?.readyState !== WebSocket.OPEN) return false;
+    this.socket.send(message);
+    return true;
+  }
+
+  private upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-    if (url.pathname !== '/cdp' && url.pathname !== '/extension') {
+    const origin = request.headers.origin;
+    if (url.pathname !== '/extension' || !isLoopback(request.socket.remoteAddress) || !origin || !EXTENSION_ORIGIN.test(origin)) {
       socket.destroy();
       return;
     }
+    this.sockets.handleUpgrade(request, socket, head, (webSocket) => this.awaitHello(webSocket));
+  }
 
-    if (!isLoopbackAddress(request.socket.remoteAddress)) {
-      socket.destroy();
-      return;
-    }
+  private tokenMatches(candidate: string): boolean {
+    return candidate.length === this.token.length && timingSafeEqual(Buffer.from(candidate), Buffer.from(this.token));
+  }
 
-    if (url.pathname === '/cdp' && !this.isTokenValid(url.searchParams.get('token'))) {
-      socket.destroy();
-      return;
-    }
-
-    if (url.pathname === '/extension') {
-      const origin = request.headers.origin;
-      const authorization = request.headers.authorization;
-      const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
-      if (!origin || !EXTENSION_ORIGIN.test(origin) || !this.isTokenValid(token)) {
-        socket.destroy();
+  /** The first message must be a hello with the token; anything else closes the socket. */
+  private awaitHello(webSocket: WebSocket): void {
+    const timer = setTimeout(() => webSocket.close(4401, 'no hello'), HELLO_TIMEOUT_MS);
+    webSocket.once('message', (data) => {
+      clearTimeout(timer);
+      let hello: unknown;
+      try {
+        hello = ExtensionMessageSchema.parse(JSON.parse(data.toString()));
+      } catch {
+        webSocket.close(4400, 'invalid hello');
         return;
       }
-    }
-
-    this.webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-      this.webSocketServer.emit('connection', webSocket, request);
+      if (typeof hello !== 'object' || hello === null || !('type' in hello) || hello.type !== 'aether.hello' || !('token' in hello) || typeof hello.token !== 'string' || !this.tokenMatches(hello.token)) {
+        webSocket.close(4401, 'bad token');
+        return;
+      }
+      this.accept(webSocket);
     });
   }
 
-  private handleConnection(socket: WebSocket, request: IncomingMessage): void {
-    const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
-    if (pathname === '/extension') {
-      this.extensionSocket?.close(1013, 'A newer extension host connected');
-      this.extensionSocket = socket;
-      this.emit('extensionConnected');
-      socket.on('message', (data) => this.onExtensionMessage(socket, data.toString()));
-      socket.on('close', () => {
-        if (this.extensionSocket === socket) this.extensionSocket = undefined;
-        this.emit('extensionDisconnected');
-      });
-      return;
+  private accept(webSocket: WebSocket): void {
+    const previous = this.socket;
+    this.socket = webSocket;
+    if (previous) {
+      previous.removeAllListeners('close');
+      previous.close(4000, 'replaced by a newer connection');
+      this.emit('reset', 'the extension reconnected');
     }
-
-    this.cdpClients.add(socket);
-    socket.on('message', (data) => this.onCdpMessage(socket, data.toString()));
-    socket.on('close', () => {
-      this.cdpClients.delete(socket);
-      for (const [requestId, client] of this.pending) {
-        if (client === socket) this.pending.delete(requestId);
-      }
+    webSocket.on('message', (data) => this.onMessage(data.toString()));
+    webSocket.on('close', (code, reason) => {
+      if (this.socket !== webSocket) return;
+      this.socket = undefined;
+      this.stopPings();
+      const detail = `the extension disconnected (${code}${reason.length > 0 ? ` ${reason.toString()}` : ''})`;
+      this.emit('disconnected', detail);
+      this.emit('reset', detail);
     });
+    this.startPings(webSocket);
+    this.emit('connected');
   }
 
-  private onCdpMessage(socket: WebSocket, raw: string): void {
-    let message: unknown;
+  private onMessage(raw: string): void {
+    let message: ReturnType<typeof ExtensionMessageSchema.parse>;
     try {
-      message = CdpWireMessageSchema.parse(JSON.parse(raw));
+      message = ExtensionMessageSchema.parse(JSON.parse(raw));
     } catch {
-      socket.close(1003, 'Invalid CDP message');
       return;
     }
-
-    if (!isCdpRequest(message)) return;
-    if (!this.extensionSocket || this.extensionSocket.readyState !== WebSocket.OPEN) {
-      socket.send(JSON.stringify({ id: message.id, error: { code: -32000, message: 'Aether extension is disconnected' } }));
-      return;
-    }
-    this.pending.set(message.id, socket);
-    this.extensionSocket.send(JSON.stringify(message));
-  }
-
-  private onExtensionMessage(socket: WebSocket, raw: string): void {
-    let message: unknown;
-    try {
-      message = BridgeMessageSchema.parse(JSON.parse(raw));
-    } catch {
-      socket.close(1003, 'Invalid bridge message');
-      return;
-    }
-
-    if (isCdpResponse(message)) {
-      const target = this.pending.get(message.id);
-      this.pending.delete(message.id);
-      if (target?.readyState === WebSocket.OPEN) target.send(JSON.stringify(message));
-      return;
-    }
-
-    if (isCdpEvent(message)) {
-      for (const client of this.cdpClients) {
-        if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(message));
+    if ('type' in message) {
+      switch (message.type) {
+        case 'aether.pong':
+          this.lastPong = message.n;
+          return;
+        case 'aether.reply':
+          this.emit('reply', message);
+          return;
+        case 'aether.control':
+          this.emit('control', message);
+          return;
+        case 'aether.memory':
+          this.emit('memory', message);
+          return;
+        case 'aether.detached':
+          this.emit('reset', `the debugger detached: ${message.reason}`);
+          return;
+        case 'aether.hello':
+          return;
       }
-      return;
     }
-
-    this.emit('status', message);
+    this.transport.deliver(raw);
   }
 
-  private isTokenValid(candidate: string | null | undefined): boolean {
-    if (!candidate || candidate.length !== this.token.length) return false;
-    return timingSafeEqual(Buffer.from(candidate), Buffer.from(this.token));
+  /** Application keepalive: two missed pongs mean a half-open socket, for example a suspended service worker. */
+  private startPings(webSocket: WebSocket): void {
+    this.stopPings();
+    this.pingsSent = 0;
+    this.lastPong = 0;
+    this.pingTimer = setInterval(() => {
+      if (this.pingsSent - this.lastPong >= 2) {
+        webSocket.terminate();
+        return;
+      }
+      this.pingsSent++;
+      this.send({ type: 'aether.ping', n: this.pingsSent });
+    }, this.pingIntervalMs);
   }
-}
 
-function isLoopbackAddress(address: string | undefined): boolean {
-  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
-}
-
-function isCdpRequest(message: unknown): message is { id: number; method: string } {
-  return typeof message === 'object' && message !== null && 'id' in message && 'method' in message;
-}
-
-function isCdpResponse(message: unknown): message is { id: number } {
-  return typeof message === 'object' && message !== null && 'id' in message && !('method' in message);
-}
-
-function isCdpEvent(message: unknown): message is { method: string } {
-  return typeof message === 'object' && message !== null && 'method' in message && !('id' in message);
+  private stopPings(): void {
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.pingTimer = undefined;
+  }
 }

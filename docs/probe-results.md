@@ -1,23 +1,22 @@
-# Aether Step 1 Probe & Benchmark Results
+# Probe results
 
-Recorded on: 2026-10-31T12:09:49.715Z
-Environment: Windows (Node v22, Google Chrome 156.0, CDP WebSocket)
+Recorded 2026-11-11T14:03:29.742Z by `scripts/run-probes.ts`. Headless Chrome, viewport 1280x800, Node v22.18.0.
 
-| Target | URL | Frames | Elements | Truncated | Token Est. | Latency p50 | Latency p95 |
-|---|---|---|---|---|---|---|---|
-| Fixture: Simple Form | `http://localhost:4101/form.html` | 1 | 12 | false | **118** | 6.25 ms | 33.66 ms |
-| Fixture: Nested Iframes | `http://localhost:4101/nested-iframes.html` | 3 | 6 | false | **100** | 7.5 ms | 16.39 ms |
-| Fixture: Cross-Origin Iframe | `http://localhost:4101/cross-origin.html` | 2 | 4 | false | **73** | 6.97 ms | 53.57 ms |
-| Fixture: Shadow DOM | `http://localhost:4101/shadow-dom.html` | 1 | 3 | false | **49** | 2.34 ms | 5.68 ms |
-| Fixture: 500-Row List | `http://localhost:4101/long-list.html` | 1 | 4 | false | **72** | 109.69 ms | 146.86 ms |
-| DuckDuckGo Search | `https://duckduckgo.com` | 1 | 109 | false | **1221** | 72.3 ms | 859.84 ms |
-| GitHub Public | `https://github.com` | 1 | 76 | false | **889** | 186.41 ms | 550.9 ms |
-| Hacker News | `https://news.ycombinator.com` | 1 | 5 | false | **46** | 74.07 ms | 87.08 ms |
-| Example Domain | `https://example.com` | 1 | 1 | false | **19** | 3.38 ms | 26.08 ms |
+Skim tokens are estimated at 3.5 characters per token. Latency is the time for one `Perceiver.capture()` (frame discovery, accessibility tree, DOMSnapshot, extraction), measured after the load event; it does not include rendering the skim.
 
-## Analysis and Verification against Exit Gates
+| Target | Frames | Refs | Skim tokens | Capture p50 | Capture p95 | Note |
+|---|---|---|---|---|---|---|
+| Fixture: form | 1 | 9 | 112 | 7 ms | 16.5 ms |  |
+| Fixture: nested iframes | 3 | 6 | 120 | 4.2 ms | 8.6 ms |  |
+| Fixture: cross-origin iframe | 2 | 4 | 86 | 3.8 ms | 6.7 ms |  |
+| Fixture: shadow DOM | 1 | 3 | 58 | 3 ms | 4.7 ms |  |
+| Fixture: 500-row list | 1 | 502 | 105 | 142.3 ms | 205.2 ms |  |
+| Fixture: table | 1 | 21 | 278 | 8.1 ms | 10.3 ms |  |
+| Fixture: covered by overlay | 1 | 8 | 125 | 4.6 ms | 6.3 ms |  |
+| Wikipedia article | 1 | 2274 | 846 | 1039.1 ms | 1460.8 ms |  |
+| Hacker News | 1 | 320 | 1134 | 63.2 ms | 78.3 ms |  |
+| DuckDuckGo results | 2 | 4 | 54 | 13 ms | 13.6 ms |  |
+| GitHub repository | 1 | 183 | 921 | 144.8 ms | 159.6 ms | no load event before timeout |
+| MDN reference | 28 | 2004 | 721 | 1220.6 ms | 1512.5 ms |  |
 
-1. **Token Constraint Verification:** All measured initial snapshots are well under the 2,000 to 4,000 token ceiling.
-2. **Frame Model Verification:** Cross-origin OOPIF frame resolution correctly yields 2 distinct frames and captures elements across child sessions.
-3. **Sibling Collapse & Element Cap:** 500-row list correctly collapses repetitive rows into first 3 + counter and stays bounded by the 150-element cap.
-4. **Latency Verification:** Median capture time (p50) remains well under 250ms on local pages and under 500ms on external web pages.
+Real-site results depend on the live page at the time of recording and on network speed while the page settles.
