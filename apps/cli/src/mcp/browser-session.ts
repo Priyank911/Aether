@@ -1,6 +1,21 @@
 import { CDPClient, ChromeLauncher, type CDPSession, type LaunchedBrowser } from '@aether/cdp';
-import { describeDialog, yieldOverlay } from '@aether/actor';
-import { renderFind, renderFocus, renderSkim, renderText, type PageModel, type RenderResult } from '@aether/perceiver';
+import { describeDialog, scrollThrough, yieldOverlay } from '@aether/actor';
+import {
+  computeDelta,
+  findControl,
+  findItems,
+  ItemBucket,
+  NEXT_PAGE,
+  ProductGraphMatcher,
+  readProductFacts,
+  renderFind,
+  renderFocus,
+  renderItems,
+  renderSkim,
+  renderText,
+  type PageModel,
+  type RenderResult,
+} from '@aether/perceiver';
 import { classifyAction, classifyOpen, type NavigationContext } from '@aether/policy';
 import {
   ActParamsSchema,
@@ -91,6 +106,8 @@ export class MCPBrowserSession {
   public readonly runLog: RunLog;
   private readonly logger?: Logger;
   private readonly actions = new ActionLog();
+  private readonly seenItems = new Set<string>();
+  private lastSkim?: PageModel;
 
   private constructor(client: CDPClient, browser?: LaunchedBrowser, options: MCPBrowserSessionOptions = {}) {
     this.browser = browser;
@@ -161,10 +178,23 @@ export class MCPBrowserSession {
       const tab = await this.currentTab();
       const blocked = this.dialogOutput(tab);
       if (blocked) return blocked;
+      if (params.as === 'survey' || (params.as === 'items' && (params.query !== undefined || params.max_pages !== undefined))) {
+        return this.survey(tab, params);
+      }
+      if (params.as === 'items') return this.items(tab);
       const model = await this.capture(tab);
       if (params.as === 'text') return this.page(renderText(model, params.ref, params.after), tab);
       if (params.ref) return this.page(renderFocus(model, params.ref, params.after), tab);
       if (params.after) return { notes: ['after needs a ref for the outline; use look ref=<region> after=<ref>'], isError: true };
+      // Re-reading an unchanged page costs a full skim; say so in one line instead.
+      const previous = this.lastSkim;
+      this.lastSkim = model;
+      if (previous && previous.documentId === model.documentId && previous.url === model.url && previous.scrollPercent === model.scrollPercent) {
+        const delta = computeDelta(previous, model);
+        if (!delta.full && delta.lines.length === 0) {
+          return { notes: ['page unchanged since your last look: use the refs you have, look ref=<region> for detail, look as=items for listings, or find.'] };
+        }
+      }
       return this.page(renderSkim(model), tab);
     });
   }
@@ -312,6 +342,8 @@ export class MCPBrowserSession {
       else if (!params.success && this.actions.advertised.has(entry.site)) this.memoryStore.recordFailure(entry.site, entry.goal);
     }
     this.actions.clear();
+    this.seenItems.clear();
+    this.lastSkim = undefined;
     this.run.idle(params.success ? 'Done' : 'Stopped without finishing');
     this.continuations.clear();
     this.visitedOrigins.clear();
@@ -349,12 +381,76 @@ export class MCPBrowserSession {
     await this.browser?.kill();
   }
 
+  /**
+   * Every listing item on the page after scrolling through it, so choices are
+   * made from the whole list rather than the first screen.
+   */
+  private async items(tab: AgentTab): Promise<ToolOutput> {
+    const scrolled = await scrollThrough(tab.session, tab.watcher);
+    const model = await this.capture(tab);
+    const product = await readProductFacts(tab.session);
+    const output = this.page(renderItems(model, { product, seenBefore: this.seenItems }), tab);
+    for (const item of findItems(model)) this.seenItems.add(item.key);
+    const note = `scrolled through the page in ${scrolled.steps} steps${scrolled.reachedEnd ? ' to the end' : ', end not reached'}; ${this.seenItems.size} distinct items seen this run`;
+    return { ...output, notes: [note, ...output.notes] };
+  }
+
+  /**
+   * Procedural harvest & graph-matching: autonomously navigates pages, collects items
+   * into a bucket across pages, prunes noise/outliers, and ranks top matching candidates.
+   */
+  private async survey(tab: AgentTab, params: z.infer<typeof LookParamsSchema>): Promise<ToolOutput> {
+    const bucket = new ItemBucket();
+    const maxPages = Math.min(5, Math.max(1, params.max_pages ?? 2));
+    let pagesHarvested = 0;
+
+    for (let page = 1; page <= maxPages; page++) {
+      pagesHarvested++;
+      await scrollThrough(tab.session, tab.watcher);
+      const model = await this.capture(tab);
+      const items = findItems(model);
+      bucket.addListingItems(items, model.url, page);
+      for (const item of items) this.seenItems.add(item.key);
+
+      if (page < maxPages) {
+        const nextNode = findControl(
+          model,
+          (node) => (node.role === 'link' || node.role === 'button') && NEXT_PAGE.test(node.name.trim()),
+        );
+        if (!nextNode || !nextNode.ref) {
+          break;
+        }
+
+        const moved = await this.act({
+          actions: [{ op: 'click', ref: nextNode.ref }],
+          risk: 'read',
+          why: `Survey page ${page + 1}`,
+        });
+
+        if (moved.isError) {
+          break;
+        }
+      }
+    }
+
+    const matchResult = ProductGraphMatcher.evaluate(bucket.getAll(), {
+      query: params.query,
+      topK: 3,
+    });
+
+    const note = `surveyed ${pagesHarvested} page(s) into item bucket (${bucket.size} items harvested); ${matchResult.shortlist.length} candidate(s) shortlisted, ${matchResult.pruned.length} pruned`;
+    const output = this.page({ text: matchResult.text, tokens: matchResult.tokens, warnings: [] }, tab);
+    return { ...output, notes: [note, ...output.notes] };
+  }
+
   /** Run a tool body unless the person stopped the run, a request is waiting, or they asked to take over. */
   private async guarded(label: string, body: () => Promise<ToolOutput>): Promise<ToolOutput> {
     const stop = this.takeStop();
     if (stop) return stop;
-    if (this.run.waiting) return this.waitingOutput();
-    if (this.run.consumeTakeover()) return this.handBack();
+    const waiting = this.run.waiting;
+    // The person has the tab: hold this call until they press Resume, then show the page as they left it. The call itself is not run, since its refs may be stale.
+    if (waiting?.reason === 'user_interrupted') return this.handBack(waiting.id, 'the person had control of the tab; your last call was not run. The page now:');
+    if (waiting) return this.waitingOutput();
     this.run.acting(label);
     return body();
   }
@@ -372,16 +468,17 @@ export class MCPBrowserSession {
   }
 
   /** The person has the tab. Hold until they press Resume, then return a fresh skim. */
-  private async handBack(): Promise<ToolOutput> {
-    const pending = this.run.hold('user_interrupted', 'You have control of the tab. Press Resume to hand it back.');
+  private async handBack(id: string, note: string): Promise<ToolOutput> {
     const tab = await this.currentTab();
-    return this.holdAndContinue(pending.id, () => this.afterHuman(tab, 'the person took over and handed back control'));
+    return this.holdAndContinue(id, this.continuations.has(id) ? undefined : () => this.afterHuman(tab, note));
   }
 
   /** Wait for the reply to a pending request, then run what was held. Returns a pending handoff id on timeout. */
   private async holdAndContinue(id: string, continuation?: Continuation): Promise<ToolOutput> {
     if (continuation) this.continuations.set(id, continuation);
     const reply = await this.run.waitFor(id);
+    const stopped = this.takeStop();
+    if (stopped) return stopped;
     if (!reply) {
       return { notes: [`pending handoff=${id}: the person has not replied yet. Call ask with handoff=${id} to keep waiting.`] };
     }
@@ -402,11 +499,13 @@ export class MCPBrowserSession {
   }
 
   private async execute(tab: AgentTab, params: ActParams, before: PageModel | undefined): Promise<ToolOutput> {
-    const result = await tab.actor.execute(params, this.run.frame().step, () => this.run.takeoverPending);
+    const result = await tab.actor.execute(params, this.run.frame().step, () => this.run.interrupted);
     if (before) this.actions.recordActions(before, params, result.executedCount);
     if (result.stoppedBy === 'person') {
-      this.run.consumeTakeover();
-      const pending = this.run.hold('user_interrupted', 'You have control of the tab. Press Resume to hand it back.');
+      const stopped = this.takeStop();
+      if (stopped) return { ...stopped, page: result.text, url: result.model.url };
+      const pending = this.run.waiting;
+      if (!pending) return { notes: [], page: result.text, url: result.model.url };
       return this.holdAndContinue(pending.id, async () => {
         const after = await this.afterHuman(tab, 'the person took over during this step and handed back control');
         return { ...after, page: `${result.text}\n${after.page ?? ''}` };

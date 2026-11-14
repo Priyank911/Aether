@@ -24,10 +24,9 @@ export class RunState {
   private label = 'Waiting for the agent';
   private pending?: Pending;
   private readonly settled = new Map<string, HumanReply>();
-  private readonly waiters = new Map<string, (reply: HumanReply) => void>();
+  private readonly waiters = new Map<string, (reply: HumanReply | undefined) => void>();
   private readonly listeners = new Set<(frame: RunStateFrame) => void>();
   private stopRequested = false;
-  private takeoverRequested = false;
   public holdTimeoutMs = HOLD_TIMEOUT_MS;
 
   public get state(): RunStateName {
@@ -61,7 +60,6 @@ export class RunState {
     this.label = label;
     this.pending = undefined;
     this.stopRequested = false;
-    this.takeoverRequested = false;
     this.emit();
   }
 
@@ -113,15 +111,25 @@ export class RunState {
     return true;
   }
 
+  /**
+   * Stop and Take over act at once, not at the agent's next call. Take over
+   * moves the run to waiting_human(user_interrupted) right away, so the page
+   * unlocks and turns amber; Stop ends the run and releases any held call.
+   */
   public control(control: RunControl): void {
     if (control.kind === 'stop') {
+      if (this.name === 'idle') return;
       this.stopRequested = true;
-      this.label = 'Stopping';
-    } else {
-      this.takeoverRequested = true;
-      this.label = 'Handing control to you';
+      this.pending = undefined;
+      this.name = 'idle';
+      this.label = 'Stopped by you';
+      this.emit();
+      for (const waiter of this.waiters.values()) waiter(undefined);
+      this.waiters.clear();
+      return;
     }
-    this.emit();
+    if (this.name === 'idle' || this.pending) return;
+    this.hold('user_interrupted', 'You have control of the tab. Press Resume to hand it back.');
   }
 
   public consumeStop(): boolean {
@@ -130,14 +138,9 @@ export class RunState {
     return requested;
   }
 
-  public get takeoverPending(): boolean {
-    return this.takeoverRequested;
-  }
-
-  public consumeTakeover(): boolean {
-    const requested = this.takeoverRequested;
-    this.takeoverRequested = false;
-    return requested;
+  /** True while the person has taken over or stopped the run; a running batch stops before its next action. */
+  public get interrupted(): boolean {
+    return this.stopRequested || this.pending?.reason === 'user_interrupted';
   }
 
   private emit(): void {

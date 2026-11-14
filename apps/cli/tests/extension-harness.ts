@@ -17,6 +17,8 @@ export interface ExtensionHarness {
   /** The engine session that reaches Chrome only through the extension. */
   session: MCPBrowserSession;
   evaluateIn: (urlPrefix: string, expression: string) => Promise<unknown>;
+  /** A test-side session on a page, standing in for the person's own input. */
+  pageSession: (urlPrefix: string) => Promise<CDPSession>;
   close: () => Promise<void>;
 }
 
@@ -48,7 +50,7 @@ export async function startExtensionHarness(): Promise<ExtensionHarness> {
   const browser: LaunchedBrowser = await ChromeLauncher.launch({ headless: true, pipe: true, extensions: true });
   if (!browser.transport) throw new Error('pipe transport missing');
   const inspector = CDPClient.over(browser.transport);
-  const { id: extensionId } = await inspector.sendCommand<{ id: string }>('Extensions.loadUnpacked', { path: extensionCopy });
+  const { id: extensionId } = await inspector.sendCommand<{ id: string }>('Extensions.loadUnpacked', { path: extensionCopy }, undefined, 30000);
 
   const bridge = new ExtensionBridge(path.join(directory, 'bridge.json'));
   await bridge.start();
@@ -83,7 +85,7 @@ export async function startExtensionHarness(): Promise<ExtensionHarness> {
   bridge.attachRun(session.run);
 
   const attached = new Map<string, CDPSession>();
-  const evaluateIn = async (urlPrefix: string, expression: string): Promise<unknown> => {
+  const pageSession = async (urlPrefix: string): Promise<CDPSession> => {
     const { targetInfos } = await inspector.sendCommand<{ targetInfos: Array<{ targetId: string; type: string; url: string }> }>('Target.getTargets');
     const target = targetInfos.find((candidate) => candidate.type === 'page' && candidate.url.startsWith(urlPrefix));
     if (!target) throw new Error(`no page at ${urlPrefix}`);
@@ -92,6 +94,10 @@ export async function startExtensionHarness(): Promise<ExtensionHarness> {
       page = await inspector.attachToTarget(target.targetId);
       attached.set(target.targetId, page);
     }
+    return page;
+  };
+  const evaluateIn = async (urlPrefix: string, expression: string): Promise<unknown> => {
+    const page = await pageSession(urlPrefix);
     const result = await page.send<{ result: { value?: unknown } }>('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     return result.result.value;
   };
@@ -103,6 +109,7 @@ export async function startExtensionHarness(): Promise<ExtensionHarness> {
     bridge,
     session,
     evaluateIn,
+    pageSession,
     close: async () => {
       await session.close().catch(() => undefined);
       await bridge.close();

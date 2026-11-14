@@ -16,9 +16,10 @@ From the repository root in PowerShell:
 
 ```powershell
 pnpm install
-pnpm extension:build
-pnpm native-host:build
+pnpm setup:build
 ```
+
+`setup:build` compiles the engine (`apps/cli/dist`), the native host and the extension. Run it again after pulling changes, then reload the extension on `chrome://extensions`.
 
 ## 2. Load the extension
 
@@ -38,20 +39,38 @@ Then reload the extension on `chrome://extensions`.
 
 ## 4. Add Aether to your MCP host
 
-For hosts that take a command and arguments:
+Run the compiled entry point with Node directly. Do not launch it through `pnpm mcp`: pnpm prints a script banner on stdout, which is the MCP protocol stream, and the host then stays at "Starting" or reports a parse error.
+
+VS Code (`.vscode/mcp.json`):
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "aether": {
-      "command": "pnpm",
-      "args": ["--dir", "D:\\Agentic Browser\\aether", "mcp"]
+      "type": "stdio",
+      "command": "node",
+      "args": ["D:\\Agentic Browser\\aether\\apps\\cli\\dist\\index.js", "mcp"]
     }
   }
 }
 ```
 
-Use the absolute path of your checkout. When the host starts the server, Aether writes `~/.aether/bridge.json` (owner-only) with a random port and token, the native host passes them to the extension, and the extension connects. The side panel then shows **Connected**.
+Claude Code, Cursor and other hosts that use `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "aether": {
+      "command": "node",
+      "args": ["D:\\Agentic Browser\\aether\\apps\\cli\\dist\\index.js", "mcp"]
+    }
+  }
+}
+```
+
+In VS Code the server starts when a chat session first uses it. Pressing Start in `mcp.json` before any chat exists fails with "Cannot start an MCP server before the session runtime has been created. Send a message first." That message comes from VS Code; open Chat in **Agent** mode and send a message, and VS Code starts Aether itself.
+
+Use the absolute path of your checkout. Run only one Aether server at a time: each one writes `~/.aether/bridge.json`, and the extension connects to the newest. When the host starts the server, Aether writes `~/.aether/bridge.json` (owner-only) with a random port and token, the native host passes them to the extension, and the extension connects. The side panel then shows **Connected**.
 
 ## 5. Use it
 
@@ -70,8 +89,11 @@ Use the absolute path of your checkout. When the host starts the server, Aether 
 
 ## Troubleshooting
 
-| Panel says | Meaning and fix |
+Run `pnpm doctor` first. It checks the builds and the native host registration, reports which engine owns the bridge and whether Chrome is attached to it, and, when no engine is running, starts one for 20 seconds and waits for your extension to connect.
+
+| Symptom | Meaning and fix |
 |---|---|
+| The MCP host stays at "Starting" or reports a parse error | The server was started through `pnpm`, whose banner corrupts stdout. Use the `node .../apps/cli/dist/index.js mcp` command above. If `dist` is missing, run `pnpm setup:build`. The host's output channel for the server shows its stderr. |
 | Native host missing | The host is not registered for this extension ID. Run step 3 with the ID shown on `chrome://extensions`, then reload the extension. |
 | Waiting for your agent | The engine is not running. Start or reconnect your MCP host. A `bridge.json` left by a killed engine is replaced when the next one starts. |
 | An agent error naming a protected page | Chrome does not allow debugging `chrome://` pages, the Web Store or other extensions. Open a regular web page. |

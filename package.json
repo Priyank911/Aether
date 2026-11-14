@@ -8,13 +8,16 @@
     "typecheck": "pnpm --filter @aether/extension run prepare && tsc --build --verbose",
     "lint": "node scripts/lint.mjs",
     "lint:native": "biome lint .",
-    "test": "pnpm extension:build && vitest run",
+    "test": "pnpm extension:build && tsc --build apps/cli && vitest run",
     "test:watch": "vitest",
     "probe": "tsx apps/cli/src/index.ts probe",
     "mcp": "tsx apps/cli/src/index.ts mcp",
     "demo": "tsx scripts/demo-live.ts",
     "extension:build": "pnpm --filter @aether/extension build",
-    "native-host:build": "pnpm --filter @aether/native-host build"
+    "native-host:build": "pnpm --filter @aether/native-host build",
+    "mcp:build": "tsc --build apps/cli",
+    "setup:build": "tsc --build apps/cli apps/native-host && pnpm extension:build",
+    "doctor": "tsc --build apps/cli && node apps/cli/dist/index.js doctor"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",

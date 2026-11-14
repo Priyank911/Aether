@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Aether mark: the agent tab's blue edge light around an A whose bar is the status pill. -->
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="#0f1216"/>
+  <rect x="16" y="16" width="96" height="96" rx="20" fill="#151a21"/>
+  <rect x="16" y="16" width="96" height="96" rx="20" fill="none" stroke="#2f6bff" stroke-opacity="0.3" stroke-width="12"/>
+  <rect x="16" y="16" width="96" height="96" rx="20" fill="none" stroke="#2f6bff" stroke-width="5"/>
+  <path d="M41 92 L64 36 L87 92" fill="none" stroke="#f6f7f9" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="47" y="71" width="34" height="9" rx="4.5" fill="#2f6bff"/>
+</svg>

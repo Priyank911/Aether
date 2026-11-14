@@ -49,7 +49,7 @@ describe('Extension transport and UI end to end', () => {
     expect(page.text).toMatch(/\[e\d+\] textbox "Full Name:"/);
 
     const groups = await harness.serviceWorker.send<{ result: { value: string[] } }>('Runtime.evaluate', {
-      expression: "chrome.tabGroups.query({}).then((groups) => groups.map((group) => `${group.title}:${group.color}`))",
+      expression: "chrome.tabGroups.query({}).then((groups) => groups.map((group) => group.title + ':' + group.color))",
       awaitPromise: true,
       returnByValue: true,
     });
@@ -68,6 +68,34 @@ describe('Extension transport and UI end to end', () => {
     expect(await harness.evaluateIn(fixtures.mainBaseUrl, "document.querySelector('aether-overlay').style.visibility")).toBe('hidden');
   }, 30000);
 
+  it("blocks the person's clicks and keys while the agent works, but not the agent's own", async () => {
+    const page = await call(client, 'open', { url: `${fixtures.mainBaseUrl}/form.html` });
+    expect(await waitFor(async () => ((await overlayState()) === 'acting' ? true : undefined), 5000, 'the acting overlay')).toBe(true);
+    const person = await harness.pageSession(fixtures.mainBaseUrl);
+    const centre = (await harness.evaluateIn(
+      fixtures.mainBaseUrl,
+      "(() => { const r = document.getElementById('newsletter').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()",
+    )) as { x: number; y: number };
+    const personClick = async (): Promise<void> => {
+      for (const type of ['mousePressed', 'mouseReleased'] as const) {
+        await person.send('Input.dispatchMouseEvent', { type, x: centre.x, y: centre.y, button: 'left', clickCount: 1 });
+      }
+    };
+    await new Promise((resolve) => setTimeout(resolve, 2700));
+    await personClick();
+    expect(await harness.evaluateIn(fixtures.mainBaseUrl, "document.getElementById('newsletter').checked")).toBe(false);
+
+    await harness.evaluateIn(fixtures.mainBaseUrl, "document.getElementById('email').focus()");
+    await person.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'x', code: 'KeyX', text: 'x', windowsVirtualKeyCode: 88 });
+    await person.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'x', code: 'KeyX', windowsVirtualKeyCode: 88 });
+    expect(await harness.evaluateIn(fixtures.mainBaseUrl, "document.getElementById('email').value")).toBe('');
+
+    const box = refIn(page.text, 'checkbox', 'Subscribe');
+    const acted = await call(client, 'act', { actions: [{ op: 'click', ref: box }], risk: 'reversible', why: 'Tick the box' });
+    expect(acted.isError).toBe(false);
+    expect(await harness.evaluateIn(fixtures.mainBaseUrl, "document.getElementById('newsletter').checked")).toBe(true);
+  }, 40000);
+
   it('answers a question from the real side panel and turns the edge amber while waiting', async () => {
     await harness.inspector.sendCommand('Target.createTarget', { url: panelUrl, background: true });
     const asked = call(client, 'ask', { question: 'Which seat do you prefer?', options: ['Aisle', 'Window'] });
@@ -82,12 +110,26 @@ describe('Extension transport and UI end to end', () => {
   it('hands control to the person from the panel and takes it back on Resume', async () => {
     await waitFor(async () => ((await inPanel("[...document.querySelectorAll('button')].some((b) => b.textContent === 'Take over') ? 'yes' : ''")) ? true : undefined), 8000, 'the Take over button');
     await inPanel("[...document.querySelectorAll('button')].find((button) => button.textContent === 'Take over').click()");
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Take over acts at once: the page turns amber and unlocks with no agent call in flight.
+    expect(await waitFor(async () => ((await overlayState()) === 'waiting' ? true : undefined), 3000, 'the page to hand over')).toBe(true);
     const looked = call(client, 'look');
     await waitFor(async () => ((await inPanel("[...document.querySelectorAll('button')].some((b) => b.textContent === 'Resume') ? 'yes' : ''")) ? true : undefined), 8000, 'the Resume button');
+
+    // With control handed over, the person's own clicks reach the page again.
+    const person = await harness.pageSession(fixtures.mainBaseUrl);
+    const before = await harness.evaluateIn(fixtures.mainBaseUrl, "document.getElementById('newsletter').checked");
+    const centre = (await harness.evaluateIn(
+      fixtures.mainBaseUrl,
+      "(() => { const r = document.getElementById('newsletter').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()",
+    )) as { x: number; y: number };
+    for (const type of ['mousePressed', 'mouseReleased'] as const) {
+      await person.send('Input.dispatchMouseEvent', { type, x: centre.x, y: centre.y, button: 'left', clickCount: 1 });
+    }
+    expect(await harness.evaluateIn(fixtures.mainBaseUrl, "document.getElementById('newsletter').checked")).toBe(!before);
+
     await inPanel("[...document.querySelectorAll('button')].find((button) => button.textContent === 'Resume').click()");
     const result = await looked;
-    expect(result.text.split('\n')[0]).toBe('the person took over and handed back control');
+    expect(result.text.split('\n')[0]).toBe('the person had control of the tab; your last call was not run. The page now:');
   }, 40000);
 
   it('removes the overlay when the run ends', async () => {

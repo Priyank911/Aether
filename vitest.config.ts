@@ -6,6 +6,8 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     include: ['tests/**/*.test.ts', 'apps/**/*.test.ts'],
+    // Most test files start their own Chrome; more in parallel makes timing-sensitive steps flaky.
+    poolOptions: { forks: { maxForks: 3, minForks: 1 } },
   },
   resolve: {
     alias: {

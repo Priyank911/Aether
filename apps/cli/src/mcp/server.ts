@@ -1,3 +1,4 @@
+import { AETHER_INSTRUCTIONS } from './instructions.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   ActParamsSchema,
@@ -23,7 +24,7 @@ function toResult(output: ToolOutput) {
 }
 
 export function createAetherMcpServer(browser: MCPBrowserSession): McpServer {
-  const server = new McpServer({ name: 'aether', version: '0.2.0' });
+  const server = new McpServer({ name: 'aether', version: '0.2.0' }, { instructions: AETHER_INSTRUCTIONS });
 
   /** Errors thrown by the engine name refs or the engine's own state, never page text, so they stay outside the wrapper. */
   const runTool = (tool: string) => async (handler: () => Promise<ToolOutput> | ToolOutput) => {
@@ -46,22 +47,22 @@ export function createAetherMcpServer(browser: MCPBrowserSession): McpServer {
   }, (params) => runTool('open')(() => browser.open(params)));
 
   server.registerTool('look', {
-    description: 'Skim the viewport, or a full region by ref. as=text reads it. after pages.',
+    description: 'Skim viewport. as=text reads; as=items lists; as=survey harvests & graph-matches.',
     inputSchema: LookParamsSchema,
   }, (params) => runTool('look')(() => browser.look(params)));
 
   server.registerTool('find', {
-    description: 'Search the whole page, off-screen too. Returns refs.',
+    description: 'Search whole page, off-screen too. Returns refs.',
     inputSchema: FindParamsSchema,
   }, (params) => runTool('find')(() => browser.find(params)));
 
   server.registerTool('act', {
-    description: 'Run 1-8 actions in order. Stops at a failure, navigation or dialog. Returns what changed.',
+    description: 'Run 1-8 actions. Stops on failure/navigation/dialog. Returns delta.',
     inputSchema: ActParamsSchema,
   }, (params) => runTool('act')(() => browser.act(params)));
 
   server.registerTool('screenshot', {
-    description: 'Image of the viewport or a ref, for visuals the text views miss.',
+    description: 'Image of viewport or ref for visuals text misses.',
     inputSchema: ScreenshotParamsSchema,
   }, (params) => runTool('screenshot')(() => browser.screenshot(params)));
 
@@ -71,12 +72,12 @@ export function createAetherMcpServer(browser: MCPBrowserSession): McpServer {
   }, (params) => runTool('ask')(() => browser.ask(params)));
 
   server.registerTool('memory', {
-    description: 'Recall or save a preference or site note.',
+    description: 'Recall or save site preference or note.',
     inputSchema: MemoryParamsSchema,
   }, (params) => runTool('memory')(() => browser.memory(params)));
 
   server.registerTool('done', {
-    description: 'End the run with the result and evidence.',
+    description: 'End run with result and evidence.',
     inputSchema: DoneParamsSchema,
   }, (params) => runTool('done')(() => browser.done(params)));
 

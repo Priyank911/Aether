@@ -34,6 +34,7 @@ export class StateHub {
       this.recent.length = Math.min(this.recent.length, RECENT_LIMIT);
     }
     void this.tabs.markWaiting(frame.state === 'waiting_human');
+    void this.badge(frame);
     this.broadcast(frame);
     const tabId = this.tabs.current;
     if (tabId !== undefined) void chrome.tabs.sendMessage(tabId, frame).catch(() => undefined);
@@ -53,6 +54,15 @@ export class StateHub {
       agentTab: { type: 'aether.agent_tab', tabId: tab?.id, title: tab?.title ?? 'No agent tab yet' },
       recent: [...this.recent],
     };
+  }
+
+  /** The toolbar icon carries the state too: a blue dot while working, an amber mark when the run needs you. */
+  private async badge(frame: RunStateFrame): Promise<void> {
+    const waiting = frame.state === 'waiting_human';
+    const working = frame.state === 'acting' || frame.state === 'resuming';
+    await chrome.action.setBadgeText({ text: waiting ? '!' : working ? '•' : '' }).catch(() => undefined);
+    await chrome.action.setBadgeBackgroundColor({ color: waiting ? '#f5a524' : '#2f6bff' }).catch(() => undefined);
+    await chrome.action.setTitle({ title: waiting ? 'Aether needs you' : working ? `Aether: ${frame.label}` : 'Aether' }).catch(() => undefined);
   }
 
   private broadcast(message: unknown): void {

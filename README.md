@@ -11,8 +11,9 @@ Aether has no model of its own. The MCP host supplies the model and the agent lo
 ## How a step works
 
 1. `open` loads a URL and returns a **skim**: what is on screen, grouped by region, with refs like `[e12]`, and one summary line per region for what is off screen (`[e43] main: 231 more below (116 link, 115 heading): look ref=e43`). The skim fits in 1,200 tokens.
-2. `look ref=e43` expands a region, `look as=text` reads it as markdown, and `find` searches the whole page including off-screen content.
-3. `act` runs up to 8 actions with trusted Chrome input (`click`, `fill`, `key`, `hover`, `scroll`, `dialog`, `upload`) and returns only what changed:
+2. `look ref=e43` expands a region, `look as=text` reads it as markdown, `look as=items` surveys structured listing cards, and `find` searches the whole page including off-screen content.
+3. For multi-page shopping or research, **`look as=survey query="..." max_pages=N`** executes an autonomous procedural crawl: scrolls lazy elements, collects candidates across pages into an **Item Bucket**, runs an in-engine **Connected Graph & Pattern Matcher** to prune outliers (budget violations, negative keywords, irrelevant accessories) and ranks top candidates by semantic cluster centrality. Instead of 20–50 LLM round-trips burning 50k–200k tokens, it returns a structured shortlist in a single ~500 token call (~95–99% token reduction).
+4. `act` runs up to 8 actions with trusted Chrome input (`click`, `fill`, `key`, `hover`, `scroll`, `dialog`, `upload`) and returns only what changed:
 
    ```
    step 4 ok 3/3 | url unchanged
@@ -21,8 +22,8 @@ Aether has no model of its own. The MCP host supplies the model and the agent lo
    text + "2 items in your cart"
    ```
 
-4. Steps that need you are held until you answer in the side panel: questions (`ask`), approvals for irreversible steps (buy, send, delete, submitting personal or payment details, uploads, model-built URLs carrying data to a new site), and anything only you may do (passwords, codes, CAPTCHAs).
-5. `memory` recalls preferences and routes that worked before on a site; `done` ends the run and stores the route.
+5. Steps that need you are held until you answer in the side panel: questions (`ask`), approvals for irreversible steps (buy, send, delete, submitting personal or payment details, uploads, model-built URLs carrying data to a new site), and anything only you may do (passwords, codes, CAPTCHAs).
+6. `memory` recalls preferences and routes that worked before on a site; `done` ends the run and stores the route.
 
 Everything taken from a page is returned inside `<page untrusted nonce=... origin=...>` tags with a fresh nonce per call. Passwords, one-time codes and card numbers are masked as `***` in every view and are never stored.
 
@@ -35,7 +36,7 @@ Everything taken from a page is returned inside `<page untrusted nonce=... origi
 
 ## Set up
 
-See [docs/SETUP.md](docs/SETUP.md). In short: `pnpm install`, `pnpm extension:build`, `pnpm native-host:build`, load `apps/extension/.output/chrome-mv3` unpacked, register the native host with its extension ID, and add `pnpm --dir <repo> mcp` to your MCP host.
+See [docs/SETUP.md](docs/SETUP.md). In short: `pnpm install`, `pnpm setup:build`, load `apps/extension/.output/chrome-mv3` unpacked, register the native host with its extension ID, and add `node <repo>/apps/cli/dist/index.js mcp` to your MCP host (not `pnpm mcp`, whose banner corrupts the stdio stream).
 
 ## Develop
 

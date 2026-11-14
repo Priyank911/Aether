@@ -12,3 +12,8 @@ export { INTERACTIVE_ROLES, LANDMARK_ROLES, HEADING_ROLES } from './roles.js';
 export { OVERLAY_ATTRIBUTE } from './capture/snapshot.js';
 export { indexNodes } from './capture/page.js';
 export { ancestorsOf, descendantsOf } from './tree.js';
+export { findItems, renderItems, findControl, NEXT_PAGE, ITEMS_BUDGET, type ListingItem, type ProductFacts } from './items.js';
+export { readProductFacts } from './capture/structured-data.js';
+export { ItemBucket, type BucketItem, parseNumericPrice, parseNumericRating } from './bucket.js';
+export { ProductGraphMatcher, type SurveyCriteria, type SurveyMatchResult, type CandidateMatch, type PrunedItem } from './graph-matcher.js';
+

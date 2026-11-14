@@ -15,6 +15,7 @@ import {
   DIALOG_PAGE_HTML,
   UPLOAD_PAGE_HTML,
 } from './pages.js';
+import { SHOP_LISTING_HTML, SHOP_PRODUCT_HTML } from './shop.js';
 
 export interface FixtureServers {
   mainBaseUrl: string;
@@ -56,6 +57,10 @@ export async function startFixtureServers(
       res.end(LONG_PAGE_HTML);
     } else if (url === '/upload.html') {
       res.end(UPLOAD_PAGE_HTML);
+    } else if (url.startsWith('/shop/list')) {
+      res.end(SHOP_LISTING_HTML(url.includes('page=2') ? 2 : 1));
+    } else if (/^\/shop\/item\/\d+$/.test(url) && SHOP_PRODUCT_HTML(Number(url.split('/').pop()))) {
+      res.end(SHOP_PRODUCT_HTML(Number(url.split('/').pop())) ?? '');
     } else if (url === '/dialog.html') {
       res.end(DIALOG_PAGE_HTML);
     } else {

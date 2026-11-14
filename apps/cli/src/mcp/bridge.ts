@@ -73,7 +73,22 @@ export class ExtensionBridge extends EventEmitter {
     this.pingIntervalMs = pingIntervalMs;
     this.transport = new ExtensionTransport((message) => this.sendRaw(message));
     this.server.on('upgrade', (request, socket, head) => this.upgrade(request, socket, head));
+    // Loopback status for diagnostics: no secrets, only which process owns this port and whether Chrome is attached.
+    this.server.on('request', (request, response) => {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      if (url.pathname !== '/status' || !isLoopback(request.socket.remoteAddress) || request.headers.origin) {
+        response.writeHead(404).end();
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ pid: process.pid, startedAt: this.startedAt, extensionConnected: this.connected, extensionOrigin: this.extensionOriginSeen ?? null }));
+    });
   }
+
+  private readonly startedAt = Date.now();
+
+  /** Origin of the extension that last authenticated, for diagnostics. */
+  public extensionOriginSeen?: string;
 
   public get connected(): boolean {
     return this.socket?.readyState === WebSocket.OPEN;
@@ -145,7 +160,7 @@ export class ExtensionBridge extends EventEmitter {
       socket.destroy();
       return;
     }
-    this.sockets.handleUpgrade(request, socket, head, (webSocket) => this.awaitHello(webSocket));
+    this.sockets.handleUpgrade(request, socket, head, (webSocket) => this.awaitHello(webSocket, origin));
   }
 
   private tokenMatches(candidate: string): boolean {
@@ -153,7 +168,7 @@ export class ExtensionBridge extends EventEmitter {
   }
 
   /** The first message must be a hello with the token; anything else closes the socket. */
-  private awaitHello(webSocket: WebSocket): void {
+  private awaitHello(webSocket: WebSocket, origin: string): void {
     const timer = setTimeout(() => webSocket.close(4401, 'no hello'), HELLO_TIMEOUT_MS);
     webSocket.once('message', (data) => {
       clearTimeout(timer);
@@ -168,6 +183,7 @@ export class ExtensionBridge extends EventEmitter {
         webSocket.close(4401, 'bad token');
         return;
       }
+      this.extensionOriginSeen = origin;
       this.accept(webSocket);
     });
   }

@@ -68,6 +68,16 @@ export async function yieldOverlay(session: CDPSession): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 60));
 }
 
+/**
+ * Tell the Aether overlay that the next input is the agent's own, so its shield,
+ * which blocks the person's clicks and keys while the agent works, lets it through.
+ */
+export async function announceAgentInput(session: CDPSession): Promise<void> {
+  await session
+    .send('Runtime.evaluate', { expression: "document.dispatchEvent(new Event('aether-agent-input'))" })
+    .catch(() => undefined);
+}
+
 async function isOverlay(session: CDPSession, backendNodeId: number): Promise<boolean> {
   try {
     const { object } = await session.send<{ object: { objectId?: string } }>('DOM.resolveNode', { backendNodeId });

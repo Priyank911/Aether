@@ -35,13 +35,22 @@ export async function runMcpServer(options: MCPServerOptions = {}): Promise<void
   }
 
   const server = createAetherMcpServer(browser);
-  server.server.onclose = () => {
-    void browser.close();
-    void bridge?.close();
+  let stopping = false;
+  /** Close the browser and the bridge (which removes bridge.json), then exit, so a restarted host leaves nothing behind. */
+  const shutdown = async (): Promise<void> => {
+    if (stopping) return;
+    stopping = true;
+    await browser.close().catch(() => undefined);
+    await bridge?.close().catch(() => undefined);
+    process.exit(0);
   };
+  server.server.onclose = () => void shutdown();
   await server.connect(new StdioServerTransport());
-  process.once('SIGINT', () => void server.close());
-  process.once('SIGTERM', () => void server.close());
+  // A host stops a stdio server by closing its stdin; on Windows it may never send a signal.
+  process.stdin.once('end', () => void shutdown());
+  process.stdin.once('close', () => void shutdown());
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
 }
 
 export { ExtensionBridge } from './bridge.js';

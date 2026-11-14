@@ -137,9 +137,11 @@ describe('Run state, holds and approvals', () => {
     const looked = call(client, 'look');
     const request = await pending;
     expect(request.reason).toBe('user_interrupted');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(browser.run.state).toBe('waiting_human');
     reply(request.id, 'resume');
     const result = await looked;
-    expect(result.text.split('\n')[0]).toBe('the person took over and handed back control');
+    expect(result.text.split('\n')[0]).toBe('the person had control of the tab; your last call was not run. The page now:');
     expect(result.text).toContain('textbox "Full Name:"');
     await finish();
   }, 30000);

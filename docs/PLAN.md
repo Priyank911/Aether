@@ -147,6 +147,57 @@ Returns the full subtree of that ref regardless of viewport and a 1,500 token bu
 
 Returns the visible text of the region as compact markdown (headings, lists, links with their refs, table rows), built from the accessibility tree with line breaks taken from CSS `display`. Text typed into fields appears only as the field's value. Budget 2,000 tokens, paged with a line cursor `after=t<N>` given in the footer. This is the reading path for research tasks; it is never returned by action tools.
 
+### 5.4a Items (`look as: "items"`)
+
+Added 2026-11-13 after observed runs that chose from the first screen of a listing. Published evaluations show the same failure. Agents stop at the first plausible offer (WebMall). They skip filters and sorting: Online-Mind2Web attributes most of Operator's failures to this, and DeepShop reports it too. Observing the whole page also beats observing one viewport (AgentOccam).
+
+`look as=items` works in three stages:
+
+1. Scroll. It scrolls the page with trusted wheel input, up to 10 steps, until the height stops growing, so lazily loaded items exist. Then it returns to the top.
+2. Detect. It groups links outside navigation landmarks by URL path shape (`/item/#`, `/dp/*`) and picks the group whose segments carry the most item detail. Links inside a heading count, since card titles are usually headings.
+3. Print. One line per item: ref, title, prices, rating and review count, sponsored, stock and delivery notes, and the add or select button.
+
+The header gives:
+- the item count, and the count the page states;
+- how many items are new in this run;
+- the sort control;
+- the next page or "more" control, or says none was found.
+
+On a product page it adds the schema.org `Product` facts the page declares in JSON-LD (price, availability, rating, seller). These are page content and stay inside the untrusted wrapper. Budget 2,200 tokens. Distinct items seen are counted per run and reset by `done`.
+
+A plain `look` returns one line instead of the skim when nothing has changed since the last skim: same document, same scroll position, no change.
+
+The method itself is sent once as MCP server `instructions` (`apps/cli/src/mcp/instructions.ts`, under 1,500 characters), which hosts add to the model's system context:
+1. Restate the criteria.
+2. Sort and filter first.
+3. Survey every item and page.
+4. Shortlist at least three.
+5. Open each product page.
+6. Ask when options are close.
+7. Get approval before anything irreversible.
+
+### 5.4b Procedural Harvest & Graph Matcher (`look as: "survey"`)
+
+Added 2026-11-14 to solve the token burning flaw of multi-step agent browsing. Standard agentic browsers burn 50k–200k tokens per shopping/research run by making dozens of micro-action LLM round-trips (`look` -> model -> `click next` -> model -> `scroll` -> model). Inspired by Cloudflare's procedural payload approach, `as="survey"` accepts a procedural goal and executes the multi-page crawl autonomously inside the engine before returning a single, highly refined token-efficient result.
+
+```
+look(as: "survey", query: "running shoe under 100 without Trail", max_pages: 2)
+```
+
+How it works:
+1. **Autonomous Multi-Page Harvesting (`ItemBucket`)**:
+   - For each page up to `max_pages`, the engine executes trusted wheel scrolling to trigger lazy loaders.
+   - Extracts candidate item cards (title, price, ratings, reviews, stock, link URL) into an in-memory `ItemBucket`, deduplicating items across pages via normalized URL slugs.
+   - Autonomously locates and clicks the next page pagination control (`NEXT_PAGE`), waiting for DOM settle.
+2. **Connected Graph & Pattern Matcher (`ProductGraphMatcher`)**:
+   - **Constraint Filtering**: Prunes items exceeding budget caps (`under 100`), matching negative terms (`without Trail`), or marked out of stock.
+   - **Inter-Item Semantic Graph**: Builds a token similarity graph across candidates (Jaccard token affinity + cluster density/centrality + query alignment). Outliers (e.g. phone cases, socks, sponsored junk) receive low centrality scores and are pruned.
+   - **Scoring & Ranking**: Scores valid candidates by query match, rating confidence, price attractiveness, and cluster density.
+3. **Compact Token Output**:
+   - Returns a structured markdown shortlist of top $k$ candidates with preview links, pricing, rating, and pattern highlights.
+   - Groups pruned items into a one-line summary with exact prune reasons.
+   - Consumes ~400–600 tokens total for an entire multi-page search, cutting token overhead by ~95-99%.
+
 ### 5.5 Find
 
 `find(query, role?)` searches names, values and text across all frames, including content outside the viewport and past any budget. It returns up to 12 matches as `[ref] role "name"` plus the enclosing landmark, ranked by exact match, then word match, then substring. A match outside the viewport is usable directly: acting on it scrolls it into view.
@@ -205,12 +256,12 @@ Rules:
 
 ## 7. Tools
 
-Eight tools. Names and schemas are fixed after Step 2 so the host's prompt cache stays valid.
+Eight tools. Names and schemas are fixed after Step 2 so the host's prompt cache stays valid. `look as` supports `items` (5.4a) and procedural `survey` (5.4b).
 
 | Tool | Arguments | Returns |
 |---|---|---|
 | `open` | `url`, `new_tab?` | Skim of the loaded page, plus one memory line if procedures exist for the site. |
-| `look` | `ref?`, `as?: "outline" \| "text"`, `after?` | Skim, focused subtree, or text. |
+| `look` | `ref?`, `as?: "outline" \| "text" \| "items" \| "survey"`, `after?`, `query?`, `max_pages?` | Skim, focused subtree, text, listing items (5.4a), or procedural survey & graph-matching (5.4b). |
 | `find` | `query`, `role?` | Ranked matches with refs. |
 | `act` | `actions[1..8]`, `risk`, `why` | Delta. |
 | `screenshot` | `ref?` | Downscaled PNG with the overlay hidden. For visual widgets only. |

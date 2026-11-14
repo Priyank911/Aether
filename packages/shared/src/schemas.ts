@@ -16,12 +16,12 @@ export const ActionRiskSchema = z.enum(['read', 'reversible', 'irreversible']);
 export const ActionItemSchema = z.object({
   op: ActionOpSchema,
   ref: RefSchema.optional(),
-  value: z.string().optional().describe('text, option, true/false, key (Enter, Shift+Tab), up/down, accept/dismiss'),
+  value: z.string().optional().describe('text, option, key, or value'),
 });
 
 export const ActParamsSchema = z.object({
   actions: z.array(ActionItemSchema).min(1).max(8),
-  risk: ActionRiskSchema.describe('irreversible: buy, pay, send, delete, submit'),
+  risk: ActionRiskSchema.describe('read, reversible, irreversible'),
   why: z.string(),
 });
 
@@ -32,8 +32,10 @@ export const OpenParamsSchema = z.object({
 
 export const LookParamsSchema = z.object({
   ref: RefSchema.optional(),
-  as: z.enum(['outline', 'text']).optional(),
+  as: z.enum(['outline', 'text', 'items', 'survey']).optional(),
   after: z.string().regex(/^[et]\d+$/).optional(),
+  query: z.string().optional().describe('match/budget filter'),
+  max_pages: z.number().int().optional(),
 });
 
 export const FindParamsSchema = z.object({

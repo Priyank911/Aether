@@ -146,8 +146,8 @@ describe('extension bridge', () => {
     extension.socket.send(JSON.stringify({ type: 'aether.reply', id: pending.id, kind: 'answer', text: 'Friday' }));
     expect((await answered)?.text).toBe('Friday');
     extension.socket.send(JSON.stringify({ type: 'aether.control', kind: 'takeover' }));
-    await extension.next((message) => message.type === 'aether.state' && message.label === 'Handing control to you');
-    expect(run.takeoverPending).toBe(true);
+    await extension.next((message) => message.type === 'aether.state' && (message.pending as { reason?: string } | undefined)?.reason === 'user_interrupted');
+    expect(run.interrupted).toBe(true);
   });
 
   it('terminates a half-open socket that stops answering pings', async () => {

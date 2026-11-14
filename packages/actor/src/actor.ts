@@ -12,7 +12,7 @@ import {
 } from '@aether/perceiver';
 import { ActParamsSchema, type ActionItem } from '@aether/shared';
 import { fill } from './fill.js';
-import { ActionBlockedError, assertReachable, centreOf, type Point } from './geometry.js';
+import { ActionBlockedError, announceAgentInput, assertReachable, centreOf, type Point } from './geometry.js';
 import { parseChord, pressChord } from './keys.js';
 import { clickAt, moveTo, wheelAt } from './mouse.js';
 import type { OpenDialog, PageWatcher } from './page-watch.js';
@@ -150,6 +150,8 @@ export class Actor {
 
   private async run(action: ActionItem, before: PageModel, labels: Map<string, PageNode>): Promise<string | undefined> {
     if (NEEDS_REF.has(action.op) && !action.ref) throw new ActionBlockedError(`${action.op} needs a ref`);
+    // An open dialog blocks page scripts, so the overlay cannot be told; the dialog answer needs no page input anyway.
+    if (action.op !== 'dialog') await announceAgentInput(this.perceiver.session);
     const target = action.ref ? this.perceiver.target(action.ref, before) : undefined;
     const labelIn = (ordinal: number) => (backendId: number): string | undefined => {
       const node = labels.get(`${ordinal}:${backendId}`);

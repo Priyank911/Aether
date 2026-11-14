@@ -44,3 +44,14 @@ Script: `scripts/spikes/s1-sw-socket.mts`. Run 2026-11-11: the built extension i
 Result: 10 minutes with no tool calls, only the engine's 15-second keepalive pings. 0 disconnects, 0 reconnects, still connected at the end, and a CDP call through the extension worked at the end. Decision: the service worker opens the WebSocket itself; no chunked native-messaging fallback is built.
 
 Not covered: a laptop sleeping or Chrome being suspended. Both close the socket; the extension then reconnects with backoff and any command in flight fails as unverified.
+
+## S5: look as=items on real listings
+
+Script: `scripts/spikes/s5-items-real.ts`. Run 2026-11-13, headless, direct CDP.
+
+- books.toscrape.com, Mystery category: all 20 items on the page, each with title, price, stock and the add button. Next page link found. Page count read as 32. 567 tokens. 7 scroll steps to the end.
+- webscraper.io test shop, laptops: 117 items with title and price. 1,428 tokens. Scrolling stopped at the 10-step bound before the end. Titles are cut because the site itself truncates link text.
+- ebay.com search: the headless browser got a bot challenge, which became a handoff to the person as designed. No item result. Not representative of a headed, signed-in profile.
+- news.ycombinator.com: not measured; it was blocked behind the eBay handoff in the same run.
+
+Not covered: ratings drawn only as star images (books.toscrape), carousels, and infinite feeds longer than 10 steps. Re-measure on headed runs in Step 7.
