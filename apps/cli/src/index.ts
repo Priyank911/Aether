@@ -26,7 +26,13 @@ async function main() {
     }
   } else if (command === 'doctor') {
     process.exitCode = await runDoctor();
-  } else if (command === 'mcp') {
+  } else if (
+    command === 'mcp' ||
+    args.includes('mcp') ||
+    args.includes('--direct') ||
+    args.includes('--headless') ||
+    (args.length === 0 && !process.stdin.isTTY)
+  ) {
     // stdout is the MCP protocol stream. Anything else printed there breaks the host's parser,
     // so ordinary console output goes to stderr for the life of the server.
     const toStderr = (...parts: unknown[]): void => {
