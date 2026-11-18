@@ -7,8 +7,10 @@
     { "path": "./packages/actor" },
     { "path": "./packages/policy" },
     { "path": "./packages/memory" },
+    { "path": "./packages/codemode" },
     { "path": "./fixtures" },
     { "path": "./apps/cli" },
+    { "path": "./apps/desktop" },
     { "path": "./apps/native-host" },
     { "path": "./apps/extension" }
   ]

@@ -4,6 +4,7 @@ import {
   computeDelta,
   findControl,
   findItems,
+  findMatches,
   ItemBucket,
   NEXT_PAGE,
   ProductGraphMatcher,
@@ -13,8 +14,12 @@ import {
   renderItems,
   renderSkim,
   renderText,
+  type FindMatch,
+  type ListingItem,
   type PageModel,
+  type ProductFacts,
   type RenderResult,
+  type SurveyMatchResult,
 } from '@aether/perceiver';
 import { classifyAction, classifyOpen, type NavigationContext } from '@aether/policy';
 import {
@@ -31,6 +36,7 @@ import {
   type MemoryParamsSchema,
   type OpenParamsSchema,
   type PolicyDecision,
+  type PageArchetype,
   type ScreenshotParamsSchema,
 } from '@aether/shared';
 import type { z } from 'zod';
@@ -39,6 +45,8 @@ import { RunState } from '../run/run-state.js';
 import { ActionLog } from '../run/action-log.js';
 import { MemoryRefusedError, MemoryStore, openDatabase, RunLog, siteOf, type DatabaseHandle, type Logger } from '@aether/memory';
 import { AgentTab } from './agent-tab.js';
+import { fileConfig, type ConfigSource } from '@aether/memory';
+import { smartLanding } from '../landing/smart-landing.js';
 
 const NEW_TAB_LOAD_MS = 10000;
 
@@ -50,6 +58,8 @@ export interface ToolOutput {
   url?: string;
   image?: string;
   isError?: boolean;
+  /** What Smart Landing found when this output came from loading a page. */
+  landing?: { archetype: PageArchetype; notes: string[]; product?: ProductFacts };
 }
 
 export interface MCPBrowserSessionOptions {
@@ -59,6 +69,8 @@ export interface MCPBrowserSessionOptions {
   database?: DatabaseHandle;
   /** File logger; none when omitted. */
   logger?: Logger;
+  /** The person's settings; ~/.aether/config.json when omitted. */
+  config?: ConfigSource;
 }
 
 interface TargetInfo {
@@ -74,6 +86,19 @@ interface LayoutMetricsResult {
 }
 
 type Continuation = (reply: HumanReply) => Promise<ToolOutput>;
+
+/** Data from a structured view, or the tool output the guard returned instead of running it. */
+export type Guarded<T> = { data: T } | { blocked: ToolOutput };
+
+/** A structured view met a page state (an open dialog) that the tool output already describes. */
+class SessionBlockedError extends Error {
+  public readonly output: ToolOutput;
+
+  public constructor(output: ToolOutput) {
+    super('blocked');
+    this.output = output;
+  }
+}
 
 function originOf(url: string): string | undefined {
   try {
@@ -105,6 +130,7 @@ export class MCPBrowserSession {
   public readonly memoryStore: MemoryStore;
   public readonly runLog: RunLog;
   private readonly logger?: Logger;
+  private readonly config: ConfigSource;
   private readonly actions = new ActionLog();
   private readonly seenItems = new Set<string>();
   private lastSkim?: PageModel;
@@ -116,6 +142,7 @@ export class MCPBrowserSession {
     this.memoryStore = new MemoryStore(database);
     this.runLog = new RunLog(database);
     this.logger = options.logger;
+    this.config = options.config ?? fileConfig(undefined, (message) => this.logger?.warn(message));
     this.client.on('Target.targetCreated', (params: { targetInfo: TargetInfo }) => {
       const info = params.targetInfo;
       if (info.type === 'page' && this.tab && info.openerId === this.tab.targetId) this.openedByTab.push(info.targetId);
@@ -154,9 +181,14 @@ export class MCPBrowserSession {
         const blocked = this.dialogOutput(tab);
         if (blocked) return blocked;
         await tab.navigate(params.url);
-        const model = await this.capture(tab);
+        const landing = await smartLanding(tab, () => this.capture(tab), this.config.read().cookieBanners, {
+          step: this.run.frame().step,
+          interrupted: () => this.run.interrupted,
+        });
+        const model = landing.model;
         this.actions.recordOpen(model.url);
-        const output = this.page(renderSkim(model), tab);
+        const skim = this.page(renderSkim(model), tab);
+        const output: ToolOutput = { ...skim, notes: [...landing.notes, ...skim.notes], landing: { archetype: landing.archetype, notes: landing.notes, product: landing.product } };
         const advert = this.memoryStore.advert(model.url);
         if (advert) this.actions.advertised.add(siteOf(model.url));
         return advert ? { ...output, notes: [...output.notes, advert] } : output;
@@ -328,6 +360,78 @@ export class MCPBrowserSession {
     }
   }
 
+  /*
+   * Structured views for Code Mode. Each goes through the same guard as the
+   * tools above, so Stop, Take over and a pending request apply to scripts
+   * exactly as they do to single tool calls. When the guard does not let the
+   * body run, `blocked` carries what the tool would have returned.
+   */
+
+  /** URL and title of the agent tab's last capture. */
+  public pageInfo(): { url: string; title: string } | undefined {
+    const last = this.tab?.perceiver.last;
+    return last ? { url: last.url, title: last.title } : undefined;
+  }
+
+  /** Scroll the listing through, then every item on it and the product facts the page declares. */
+  public async itemsData(): Promise<Guarded<{ url: string; items: ListingItem[]; product?: ProductFacts }>> {
+    return this.guardedData('Reading every item on the page', async () => {
+      const tab = await this.currentTab();
+      const blocked = this.dialogOutput(tab);
+      if (blocked) throw new SessionBlockedError(blocked);
+      await scrollThrough(tab.session, tab.watcher);
+      const model = await this.capture(tab);
+      this.hasReadPages = true;
+      const items = findItems(model);
+      for (const item of items) this.seenItems.add(item.key);
+      return { url: model.url, items, product: await readProductFacts(tab.session) };
+    });
+  }
+
+  /** Survey up to `maxPages` result pages and rank the items against the criteria. */
+  public async surveyData(criteria: { query: string; budget?: number; minRating?: number; maxPages?: number }): Promise<Guarded<{ url: string; result: SurveyMatchResult; pages: number }>> {
+    return this.guardedData(`Surveying results for "${criteria.query.slice(0, 40)}"`, async () => {
+      const tab = await this.currentTab();
+      const blocked = this.dialogOutput(tab);
+      if (blocked) throw new SessionBlockedError(blocked);
+      const harvest = await this.harvest(tab, Math.min(10, Math.max(1, criteria.maxPages ?? 2)));
+      const result = ProductGraphMatcher.evaluate(harvest.bucket.getAll(), { query: criteria.query, budget: criteria.budget, minRating: criteria.minRating, topK: 5 });
+      return { url: this.tab?.perceiver.last?.url ?? '', result, pages: harvest.pages };
+    });
+  }
+
+  /** Ranked matches for a query across the whole page. */
+  public async findData(query: string, role?: string): Promise<Guarded<{ url: string; matches: FindMatch[] }>> {
+    return this.guardedData(`Looking for "${query.slice(0, 40)}"`, async () => {
+      const tab = await this.currentTab();
+      const blocked = this.dialogOutput(tab);
+      if (blocked) throw new SessionBlockedError(blocked);
+      const model = await this.capture(tab);
+      this.hasReadPages = true;
+      return { url: model.url, matches: findMatches(model, query, role) };
+    });
+  }
+
+  /** Hand a step to the person (sign in, a one-time code); held until they press "I've done it". */
+  public async handOff(prompt: string): Promise<ToolOutput> {
+    return this.guarded('Waiting for you', async () => {
+      const tab = await this.currentTab();
+      const pending = this.run.hold('must_perform', `${prompt} Do it in the page, then press "I've done it".`);
+      return this.holdAndContinue(pending.id, () => this.afterHuman(tab, 'the person did it'));
+    });
+  }
+
+  /** The schema.org Product facts the agent tab's page declares, if any. Page content: untrusted. */
+  public async productFacts(): Promise<ProductFacts | undefined> {
+    const tab = await this.currentTab();
+    return readProductFacts(tab.session);
+  }
+
+  /** Show a script's progress line as the current step. */
+  public setStep(label: string): void {
+    if (this.run.state === 'acting' || this.run.state === 'idle') this.run.acting(label);
+  }
+
   /** One row per tool call in the run log, plus a log line. Tool arguments are not logged, only the tool and its size. */
   public recordStep(tool: string, output: ToolOutput, tokens: number, ms: number): void {
     this.runLog.logStep(tool, this.run.frame().label, tokens, !output.isError);
@@ -400,39 +504,7 @@ export class MCPBrowserSession {
    * into a bucket across pages, prunes noise/outliers, and ranks top matching candidates.
    */
   private async survey(tab: AgentTab, params: z.infer<typeof LookParamsSchema>): Promise<ToolOutput> {
-    const bucket = new ItemBucket();
-    const maxPages = Math.min(5, Math.max(1, params.max_pages ?? 2));
-    let pagesHarvested = 0;
-
-    for (let page = 1; page <= maxPages; page++) {
-      pagesHarvested++;
-      await scrollThrough(tab.session, tab.watcher);
-      const model = await this.capture(tab);
-      const items = findItems(model);
-      bucket.addListingItems(items, model.url, page);
-      for (const item of items) this.seenItems.add(item.key);
-
-      if (page < maxPages) {
-        const nextNode = findControl(
-          model,
-          (node) => (node.role === 'link' || node.role === 'button') && NEXT_PAGE.test(node.name.trim()),
-        );
-        if (!nextNode || !nextNode.ref) {
-          break;
-        }
-
-        const moved = await this.act({
-          actions: [{ op: 'click', ref: nextNode.ref }],
-          risk: 'read',
-          why: `Survey page ${page + 1}`,
-        });
-
-        if (moved.isError) {
-          break;
-        }
-      }
-    }
-
+    const { bucket, pages: pagesHarvested } = await this.harvest(tab, Math.min(5, Math.max(1, params.max_pages ?? 2)));
     const matchResult = ProductGraphMatcher.evaluate(bucket.getAll(), {
       query: params.query,
       topK: 3,
@@ -441,6 +513,43 @@ export class MCPBrowserSession {
     const note = `surveyed ${pagesHarvested} page(s) into item bucket (${bucket.size} items harvested); ${matchResult.shortlist.length} candidate(s) shortlisted, ${matchResult.pruned.length} pruned`;
     const output = this.page({ text: matchResult.text, tokens: matchResult.tokens, warnings: [] }, tab);
     return { ...output, notes: [note, ...output.notes] };
+  }
+
+  /** Collect items from up to `maxPages` pages, following the next-page control with a trusted click. */
+  private async harvest(tab: AgentTab, maxPages: number): Promise<{ bucket: ItemBucket; pages: number }> {
+    const bucket = new ItemBucket();
+    let pages = 0;
+    for (let page = 1; page <= maxPages; page++) {
+      pages++;
+      const current = this.tab ?? tab;
+      await scrollThrough(current.session, current.watcher);
+      const model = await this.capture(current);
+      this.hasReadPages = true;
+      const items = findItems(model);
+      bucket.addListingItems(items, model.url, page);
+      for (const item of items) this.seenItems.add(item.key);
+      if (page === maxPages) break;
+      const next = findControl(model, (node) => (node.role === 'link' || node.role === 'button') && NEXT_PAGE.test(node.name.trim()));
+      if (!next?.ref) break;
+      const moved = await this.act({ actions: [{ op: 'click', ref: next.ref }], risk: 'read', why: `Survey page ${page + 1}` });
+      if (moved.isError) break;
+    }
+    return { bucket, pages };
+  }
+
+  /** Like guarded, for bodies that return data: either the data, or what the guard returned instead. */
+  private async guardedData<T>(label: string, body: () => Promise<T>): Promise<Guarded<T>> {
+    let data: { value: T } | undefined;
+    const output = await this.guarded(label, async () => {
+      try {
+        data = { value: await body() };
+      } catch (error) {
+        if (error instanceof SessionBlockedError) return error.output;
+        throw error;
+      }
+      return { notes: [] };
+    });
+    return data ? { data: data.value } : { blocked: output };
   }
 
   /** Run a tool body unless the person stopped the run, a request is waiting, or they asked to take over. */

@@ -4,7 +4,7 @@ import type { MemoryCommand } from '@aether/shared';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ExtensionBridge } from './bridge.js';
 import { MCPBrowserSession, type MCPBrowserSessionOptions } from './browser-session.js';
-import { createAetherMcpServer } from './server.js';
+import { createCodeModeMcpServer } from '../codemode/codemode-server.js';
 
 export interface MCPServerOptions extends MCPBrowserSessionOptions {
   direct?: boolean;
@@ -34,7 +34,7 @@ export async function runMcpServer(options: MCPServerOptions = {}): Promise<void
     bridge.on('disconnected', (reason: string) => logger.warn({ reason }, 'extension disconnected'));
   }
 
-  const server = createAetherMcpServer(browser);
+  const { server } = createCodeModeMcpServer(browser);
   let stopping = false;
   /** Close the browser and the bridge (which removes bridge.json), then exit, so a restarted host leaves nothing behind. */
   const shutdown = async (): Promise<void> => {
@@ -55,4 +55,4 @@ export async function runMcpServer(options: MCPServerOptions = {}): Promise<void
 
 export { ExtensionBridge } from './bridge.js';
 export { MCPBrowserSession } from './browser-session.js';
-export { createAetherMcpServer } from './server.js';
+export { createCodeModeMcpServer } from '../codemode/codemode-server.js';

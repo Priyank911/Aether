@@ -43,6 +43,7 @@ async function main() {
     console.debug = toStderr;
     console.warn = toStderr;
     try {
+      // --codemode is accepted and ignored: Code Mode is the only surface now.
       await runMcpServer({ headless: args.includes('--headless'), direct: args.includes('--direct') });
     } catch (err) {
       console.error('MCP server failed:', err);
@@ -52,7 +53,8 @@ async function main() {
     console.log(`Aether: Authentic Agentic Browser Engine
 Commands:
   probe <url> [--headed] [--text] [--find <q>]  Print the skim, token count and capture time for a page
-  mcp [--direct] [--headless]  Start MCP over the extension bridge (or Direct CDP for tests)
+  mcp [--direct] [--headless]  Start the Code Mode MCP server (aether_exec and three more) over the
+                               extension bridge, or Direct CDP for tests
   doctor                       Check the build, native host and extension connection
 `);
   }

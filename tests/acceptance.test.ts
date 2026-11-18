@@ -90,6 +90,22 @@ describe('Step 1 perception against live fixtures', () => {
     }
   });
 
+  it('unnamed form: an HTML form without a name is still a form region that contains its fields', async () => {
+    const page = await open('form.html');
+    try {
+      const model = await page.perceiver.capture();
+      const forms = [...model.byRef.values()].filter((node) => node.role === 'form');
+      expect(forms).toHaveLength(1);
+      const field = findNode(model, 'textbox', 'Full Name');
+      const submit = findNode(model, 'button', 'Submit Application');
+      const formRef = forms[0]?.ref ?? '';
+      expect(model.scopeOf.get(field.ref ?? '')).toBe(formRef);
+      expect(model.scopeOf.get(submit.ref ?? '')).toBe(formRef);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('nested same-origin iframes: content appears under nested frame lines with their ordinals', async () => {
     const page = await open('nested-iframes.html');
     try {

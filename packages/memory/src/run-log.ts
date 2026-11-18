@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type { DatabaseHandle } from './database.js';
 
 export interface RunSummary {
   id: string;
@@ -12,11 +12,11 @@ export interface RunSummary {
 
 /** One row per run and per tool call, for the side panel's step list and for Step 7 measurement. */
 export class RunLog {
-  private readonly db: Database.Database;
+  private readonly db: DatabaseHandle;
   private current?: string;
   private step = 0;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseHandle) {
     this.db = db;
   }
 

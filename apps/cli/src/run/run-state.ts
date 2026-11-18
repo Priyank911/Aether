@@ -26,6 +26,7 @@ export class RunState {
   private readonly settled = new Map<string, HumanReply>();
   private readonly waiters = new Map<string, (reply: HumanReply | undefined) => void>();
   private readonly listeners = new Set<(frame: RunStateFrame) => void>();
+  private readonly stopListeners = new Set<() => void>();
   private stopRequested = false;
   public holdTimeoutMs = HOLD_TIMEOUT_MS;
 
@@ -35,6 +36,12 @@ export class RunState {
 
   public get waiting(): Pending | undefined {
     return this.pending;
+  }
+
+  /** Called the moment the person presses Stop, so a running script ends at once rather than at its next call. */
+  public onStop(listener: () => void): () => void {
+    this.stopListeners.add(listener);
+    return () => this.stopListeners.delete(listener);
   }
 
   public onFrame(listener: (frame: RunStateFrame) => void): () => void {
@@ -126,6 +133,7 @@ export class RunState {
       this.emit();
       for (const waiter of this.waiters.values()) waiter(undefined);
       this.waiters.clear();
+      for (const listener of this.stopListeners) listener();
       return;
     }
     if (this.name === 'idle' || this.pending) return;

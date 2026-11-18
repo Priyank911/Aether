@@ -4,26 +4,36 @@
 
 # Aether
 
-Aether lets an MCP agent (Claude Code, Codex, Cursor, or any MCP host) use your real, logged-in Chrome the way a person does: glance at the page, look closer where it matters, act, and check what changed. It returns compact text instead of whole pages, and hands control to you when a step needs you.
+Aether lets an AI agent in your editor (VS Code Copilot, Claude Code, Cursor, Codex) use your real, logged-in Chrome. The agent sends short TypeScript scripts; Aether runs them against the page, returns compact text instead of whole pages, and hands control to you when a step needs you.
 
 Aether has no model of its own. The MCP host supplies the model and the agent loop; Aether is the browser engine and tool server. Design, decisions and their evidence are in [docs/PLAN.md](docs/PLAN.md).
 
-## How a step works
+## How a step works: Code Mode
 
-1. `open` loads a URL and returns a **skim**: what is on screen, grouped by region, with refs like `[e12]`, and one summary line per region for what is off screen (`[e43] main: 231 more below (116 link, 115 heading): look ref=e43`). The skim fits in 1,200 tokens.
-2. `look ref=e43` expands a region, `look as=text` reads it as markdown, `look as=items` surveys structured listing cards, and `find` searches the whole page including off-screen content.
-3. For multi-page shopping or research, **`look as=survey query="..." max_pages=N`** executes an autonomous procedural crawl: scrolls lazy elements, collects candidates across pages into an **Item Bucket**, runs an in-engine **Connected Graph & Pattern Matcher** to prune outliers (budget violations, negative keywords, irrelevant accessories) and ranks top candidates by semantic cluster centrality. Instead of 20–50 LLM round-trips burning 50k–200k tokens, it returns a structured shortlist in a single ~500 token call (~95–99% token reduction).
-4. `act` runs up to 8 actions with trusted Chrome input (`click`, `fill`, `key`, `hover`, `scroll`, `dialog`, `upload`) and returns only what changed:
+The agent writes one short TypeScript script per step and sends it to the `aether_exec` tool. The script runs in a sandbox (a worker with no file, network or process access) against a small `space` SDK. Every `space.*` call passes Aether's policy checks before it runs.
 
-   ```
-   step 4 ok 3/3 | url unchanged
-   ~ [e12] textbox "Email" value="a@b.co"
-   + [e31] alert "Enter a valid phone number"
-   text + "2 items in your cart"
-   ```
+```ts
+await space.open('https://shop.example/search?q=running+shoes');
+const found = await space.survey({ query: 'running shoes', budget: 120, minRating: 4.3, maxPages: 3 });
+const top = found.shortlist.slice(0, 3).map((c) => c.item.linkUrl!);
+return space.mapPages(top, (page) => ({ name: page.product?.name, price: page.product?.price }));
+```
 
-5. Steps that need you are held until you answer in the side panel: questions (`ask`), approvals for irreversible steps (buy, send, delete, submitting personal or payment details, uploads, model-built URLs carrying data to a new site), and anything only you may do (passwords, codes, CAPTCHAs).
-6. `memory` recalls preferences and routes that worked before on a site; `done` ends the run and stores the route.
+What the SDK does:
+1. **Smart Landing on every page load:** `space.open` waits for the page to settle, answers a cookie banner the way your setting says (reject optional cookies by default), and labels the page type (listing, product, form, article, sign-in, CAPTCHA).
+2. **Reading:** `space.skim()`, `space.focus(ref)`, `space.text()` and `space.find()` read the page as compact text with refs like `[e12]`.
+   - `space.items()` scrolls a whole listing first.
+   - `space.survey()` follows next-page links and ranks every item it collected against a budget and a minimum rating.
+3. **Acting:** `space.act()` runs up to 8 trusted inputs (`click`, `fill`, `key`, `hover`, `scroll`, `dialog`, `upload`) and returns only what changed.
+4. **Waiting for you:** steps that need you are held until you answer in the side panel:
+   - questions (`space.ask`);
+   - approvals for irreversible steps (buy, send, delete, submitting personal or payment details, uploads, script-built URLs carrying data to a new site);
+   - anything only you may do (passwords, codes, CAPTCHAs).
+
+   The script waits at that call; your denial reaches it as an error it can handle.
+5. **Memory:** `space.memory()` recalls preferences and routes that worked before; `aether_done` ends the run and stores the route.
+
+A script's result goes back to the agent in one tool result. On the fixture shop, surveying two pages, filtering, and checking three product pages took one call and returned about 200 tokens.
 
 Everything taken from a page is returned inside `<page untrusted nonce=... origin=...>` tags with a fresh nonce per call. Passwords, one-time codes and card numbers are masked as `***` in every view and are never stored.
 

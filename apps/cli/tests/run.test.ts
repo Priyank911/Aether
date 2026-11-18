@@ -1,10 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
 import type { HumanReply, Pending } from '@aether/shared';
-import { createAetherMcpServer, MCPBrowserSession } from '../src/mcp/index.js';
+import { MCPBrowserSession } from '../src/mcp/index.js';
+import { engineClient, type EngineClient } from './engine-client.js';
 import { call, refIn } from './helpers.js';
 
 /**
@@ -14,23 +12,16 @@ import { call, refIn } from './helpers.js';
 describe('Run state, holds and approvals', () => {
   let fixtures: FixtureServers;
   let browser: MCPBrowserSession;
-  let server: McpServer;
-  let client: Client;
+  let client: EngineClient;
 
   beforeAll(async () => {
     fixtures = await startFixtureServers(4121, 4122);
     browser = await MCPBrowserSession.launch({ headless: true });
     browser.run.holdTimeoutMs = 3000;
-    server = createAetherMcpServer(browser);
-    client = new Client({ name: 'aether-run-test', version: '1.0.0' });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
+    client = engineClient(browser);
   }, 30000);
 
   afterAll(async () => {
-    await client?.close().catch(() => undefined);
-    await server?.close().catch(() => undefined);
     await browser?.close();
     await fixtures?.close();
   });

@@ -1,4 +1,5 @@
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+/** Anything that answers tools/call: an MCP client, or the test engine client. */
+type ToolCaller = { callTool(request: { name: string; arguments?: Record<string, unknown> }): Promise<{ content?: unknown; isError?: unknown }> };
 
 export interface CallResult {
   text: string;
@@ -6,7 +7,7 @@ export interface CallResult {
   hasImage: boolean;
 }
 
-export async function call(client: Client, name: string, args: Record<string, unknown> = {}): Promise<CallResult> {
+export async function call(client: ToolCaller, name: string, args: Record<string, unknown> = {}): Promise<CallResult> {
   const result = await client.callTool({ name, arguments: args });
   const blocks = Array.isArray(result.content) ? (result.content as Array<{ type: string; text?: string }>) : [];
   return {

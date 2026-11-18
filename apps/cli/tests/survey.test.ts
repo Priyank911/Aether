@@ -1,35 +1,22 @@
-import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
+import { MCPBrowserSession } from '../src/mcp/browser-session.js';
+import { engineClient, type EngineClient } from './engine-client.js';
 import { call } from './helpers.js';
 
 describe('Procedural Harvest & Graph Matcher with look as=survey', () => {
   let fixtures: FixtureServers;
-  let client: Client;
+  let session: MCPBrowserSession;
+  let client: EngineClient;
 
   beforeAll(async () => {
-    fixtures = await startFixtureServers(4151, 4152);
-    client = new Client({ name: 'aether-survey-client', version: '1.0.0' });
-    await client.connect(
-      new StdioClientTransport({
-        command: process.execPath,
-        args: [
-          path.resolve('node_modules/tsx/dist/cli.mjs'),
-          path.resolve('apps/cli/src/index.ts'),
-          'mcp',
-          '--headless',
-          '--direct',
-        ],
-        cwd: process.cwd(),
-        stderr: 'inherit',
-      }),
-    );
+    fixtures = await startFixtureServers(4171, 4172);
+    session = await MCPBrowserSession.launch({ headless: true, ephemeral: true });
+    client = engineClient(session);
   }, 45000);
 
   afterAll(async () => {
-    await client?.close().catch(() => undefined);
+    await session?.close();
     await fixtures?.close();
   });
 

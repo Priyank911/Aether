@@ -1,10 +1,23 @@
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import { createRequire } from 'node:module';
+import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 
-/** The database handle type, so callers need no direct dependency on better-sqlite3. */
-export type DatabaseHandle = Database.Database;
+/*
+ * Loaded at run time rather than imported: Vite 5 (under vitest) rewrites
+ * `node:sqlite` to `sqlite`, which does not exist, because it predates this
+ * prefix-only builtin. Node and Electron load it the same either way.
+ */
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+type DatabaseSync = DatabaseSyncType;
+
+/**
+ * The database handle. node:sqlite is built into Node and Electron, so the
+ * same code runs in the CLI and in Aether Desktop with no native module to
+ * rebuild (decision D2, spike S9).
+ */
+export type DatabaseHandle = DatabaseSync;
 
 export const DEFAULT_DATABASE_PATH = path.join(homedir(), '.aether', 'aether.db');
 
@@ -51,14 +64,55 @@ CREATE TABLE IF NOT EXISTS run_steps (
   at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS run_steps_run ON run_steps (run_id);
+CREATE TABLE IF NOT EXISTS spaces (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('human', 'agent')),
+  partition TEXT NOT NULL CHECK (partition IN ('persist', 'ephemeral')),
+  created_at INTEGER NOT NULL,
+  archived INTEGER NOT NULL DEFAULT 0,
+  active_tab TEXT
+);
+CREATE TABLE IF NOT EXISTS tabs (
+  id TEXT PRIMARY KEY,
+  space_id TEXT NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  favicon TEXT,
+  scroll_y REAL NOT NULL DEFAULT 0,
+  last_viewed_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tabs_space ON tabs (space_id, position);
+CREATE TABLE IF NOT EXISTS space_state (
+  space_id TEXT NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY (space_id, key)
+);
 `;
 
 /** Open the local database and create the schema. ':memory:' is accepted for tests. */
-export function openDatabase(file = DEFAULT_DATABASE_PATH): Database.Database {
+export function openDatabase(file = DEFAULT_DATABASE_PATH): DatabaseHandle {
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
-  const db = new Database(file);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
+  const db = new DatabaseSync(file);
+  // auto_vacuum takes effect only on a new database (plan 3.1, section 11.3); an existing one keeps its mode.
+  db.exec('PRAGMA auto_vacuum = INCREMENTAL');
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
   db.exec(SCHEMA);
   return db;
+}
+
+/** Run a body in one transaction: committed if it returns, rolled back if it throws. */
+export function inTransaction<T>(db: DatabaseHandle, body: () => T): T {
+  db.exec('BEGIN');
+  try {
+    const result = body();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }

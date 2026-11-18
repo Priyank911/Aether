@@ -98,6 +98,64 @@ Run `pnpm doctor` first. It checks the builds and the native host registration, 
 | Waiting for your agent | The engine is not running. Start or reconnect your MCP host. A `bridge.json` left by a killed engine is replaced when the next one starts. |
 | An agent error naming a protected page | Chrome does not allow debugging `chrome://` pages, the Web Store or other extensions. Open a regular web page. |
 
+## Aether Desktop (preview, plan 3.1 Step 2)
+
+The Electron browser that replaces the Chrome extension. Start it from the repository root:
+
+```powershell
+pnpm desktop
+```
+
+It opens with your Personal Space. Today it has:
+- a plain tab strip and address bar, which Step 4 replaces with the full design;
+- Spaces;
+- tabs that sleep to save memory;
+- protection from crashed pages.
+
+Agent Spaces are created by agents. Until Step 3 they are created only by the test suite, because the editor connection to the app arrives in Step 3.
+
+What it stores, all under `~/.aether`:
+- `profile/`: Electron cookies and cache;
+- `aether.db`: Spaces, tabs and memory, shared with the CLI;
+- `config.json`: your settings.
+
+Shortcuts work while the toolbar has focus: Ctrl+T, Ctrl+W, Ctrl+Shift+T, Ctrl+L, Ctrl+R, Alt+Left and Alt+Right. Step 4 makes them work while a page has focus too.
+
+## How the agent works: Code Mode
+
+`aether mcp` serves four tools: `aether_exec`, `aether_screenshot`, `aether_spaces` and `aether_done`. The eight 2.0 tools are gone.
+
+The agent sends one TypeScript script per step to `aether_exec`. The script runs in a sandbox against the `space` SDK, which is printed in the tool's description. A multi-page survey that took a dozen tool calls is one call.
+
+Your host shows each step as an `aether_exec` call to the aether MCP server. That is Code Mode: MCP is only the connection, and every call carries a whole script.
+
+The host entry is the one in step 4 above; no extra flag is needed. An old `--codemode` argument is accepted and ignored.
+
+After pulling changes:
+1. Run `pnpm setup:build`.
+2. Restart the server in your host.
+
+Approvals, Take over and Stop work as before. Stop ends a running script at once.
+
+If a script waits for you longer than 50 seconds, the agent receives a token and calls `aether_exec` again with `wait` to keep waiting.
+
+With the Chrome extension there is one agent tab, so `space.mapPages` reads pages one after another. `openTabs` and `switchTab` need the Aether app, which arrives in Step 2.
+
+## Settings
+
+Your settings live in `~/.aether/config.json`. A change applies to the next page Aether loads, with no restart needed. Aether never changes this file itself, and the agent cannot change it.
+
+```json
+{ "cookieBanners": "reject" }
+```
+
+`cookieBanners` decides what Aether does with a cookie consent banner when a page loads:
+- `"reject"` (default): clicks the option that refuses optional cookies ("Reject all", "Only necessary" and similar). If a banner offers no such option, Aether leaves it alone and tells the agent. It never accepts for you.
+- `"accept"`: clicks "Accept all".
+- `"off"`: never touches a banner.
+
+A missing file means the defaults. If the file is not valid JSON, or a value is unknown, Aether uses the defaults and writes one warning to `~/.aether/aether.log`.
+
 ## Deterministic runs without the extension
 
 `pnpm mcp --direct --headless` starts the MCP server on an isolated, throwaway Chrome profile. The test suite and evaluations use this mode; it never touches your profile.

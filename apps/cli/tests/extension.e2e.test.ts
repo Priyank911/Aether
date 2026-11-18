@@ -1,9 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
-import { createAetherMcpServer } from '../src/mcp/server.js';
+import { engineClient, type EngineClient } from './engine-client.js';
 import { call, refIn } from './helpers.js';
 import { startExtensionHarness, waitFor, type ExtensionHarness } from './extension-harness.js';
 
@@ -15,25 +12,18 @@ import { startExtensionHarness, waitFor, type ExtensionHarness } from './extensi
 describe('Extension transport and UI end to end', () => {
   let fixtures: FixtureServers;
   let harness: ExtensionHarness;
-  let server: McpServer;
-  let client: Client;
+  let client: EngineClient;
   let panelUrl: string;
 
   beforeAll(async () => {
     fixtures = await startFixtureServers(4131, 4132);
     harness = await startExtensionHarness();
     harness.session.run.holdTimeoutMs = 15000;
-    server = createAetherMcpServer(harness.session);
-    client = new Client({ name: 'aether-e2e', version: '1.0.0' });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
+    client = engineClient(harness.session);
     panelUrl = `chrome-extension://${harness.extensionId}/sidepanel.html`;
   }, 60000);
 
   afterAll(async () => {
-    await client?.close().catch(() => undefined);
-    await server?.close().catch(() => undefined);
     await harness?.close();
     await fixtures?.close();
   });

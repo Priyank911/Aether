@@ -5,7 +5,7 @@ export * from './perceiver.js';
 export { renderSkim, SKIM_BUDGET } from './skim.js';
 export { renderFocus, FOCUS_BUDGET } from './focus.js';
 export { renderText, TEXT_BUDGET } from './text-view.js';
-export { renderFind, FIND_LIMIT } from './find.js';
+export { renderFind, findMatches, FIND_LIMIT, type FindMatch } from './find.js';
 export { computeDelta, FULL_SKIM_CHANGE_RATIO, type PageDelta } from './delta.js';
 export { estimateTokens, nodeLine, captureWarnings } from './format.js';
 export { INTERACTIVE_ROLES, LANDMARK_ROLES, HEADING_ROLES } from './roles.js';
@@ -17,3 +17,5 @@ export { readProductFacts } from './capture/structured-data.js';
 export { ItemBucket, type BucketItem, parseNumericPrice, parseNumericRating } from './bucket.js';
 export { ProductGraphMatcher, type SurveyCriteria, type SurveyMatchResult, type CandidateMatch, type PrunedItem } from './graph-matcher.js';
 
+export { findConsentBanner, type ConsentBanner } from './landing/consent.js';
+export { classifyPage } from './landing/archetype.js';

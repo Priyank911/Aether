@@ -1,41 +1,28 @@
-import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
+import { MCPBrowserSession } from '../src/mcp/browser-session.js';
+import { engineClient, type EngineClient } from './engine-client.js';
 import { call, refIn } from './helpers.js';
 
 /**
- * The shopping method over stdio: look as=items scrolls a lazily loaded
+ * Listing reads behind space.items: look as=items scrolls a lazily loaded
  * listing so items below the fold are listed, points at the next page, counts
  * distinct items across pages, and reads the product facts a page declares.
  */
 describe('Listing survey with look as=items', () => {
   let fixtures: FixtureServers;
-  let client: Client;
+  let session: MCPBrowserSession;
+  let client: EngineClient;
 
   beforeAll(async () => {
     fixtures = await startFixtureServers(4141, 4142);
-    client = new Client({ name: 'aether-shopping', version: '1.0.0' });
-    await client.connect(
-      new StdioClientTransport({
-        command: process.execPath,
-        args: [path.resolve('node_modules/tsx/dist/cli.mjs'), path.resolve('apps/cli/src/index.ts'), 'mcp', '--headless', '--direct'],
-        cwd: process.cwd(),
-        stderr: 'inherit',
-      }),
-    );
+    session = await MCPBrowserSession.launch({ headless: true, ephemeral: true });
+    client = engineClient(session);
   }, 45000);
 
   afterAll(async () => {
-    await client?.close().catch(() => undefined);
+    await session?.close();
     await fixtures?.close();
-  });
-
-  it('sends the working method as server instructions', () => {
-    const instructions = client.getInstructions() ?? '';
-    expect(instructions).toContain('look as=items');
-    expect(instructions.length).toBeLessThan(1500);
   });
 
   it('lists items loaded only after scrolling, with prices, ratings and the next page', async () => {

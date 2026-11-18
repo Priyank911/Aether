@@ -35,4 +35,14 @@ export function wrapUntrusted(text: string, url?: string, nonce = randomBytes(6)
   return `<page untrusted nonce=${nonce} origin=${originOf(url)}>\n${sanitizeUntrusted(text)}\n</page untrusted nonce=${nonce}>`;
 }
 
-export const ContentSanitizer = { sanitize: sanitizeUntrusted, wrapUntrusted };
+/**
+ * The wrapper for output derived from several pages, such as a Code Mode
+ * script's return value: it names every origin the run read.
+ */
+export function wrapUntrustedOrigins(text: string, origins: readonly string[], nonce = randomBytes(6).toString('hex')): string {
+  const named = origins.map((origin) => originOf(origin).replace(/["\s]/g, '')).filter((origin) => origin !== 'unknown');
+  const list = named.length > 0 ? [...new Set(named)].join(' ') : 'unknown';
+  return `<page untrusted nonce=${nonce} origins="${list}">\n${sanitizeUntrusted(text)}\n</page untrusted nonce=${nonce}>`;
+}
+
+export const ContentSanitizer = { sanitize: sanitizeUntrusted, wrapUntrusted, wrapUntrustedOrigins };

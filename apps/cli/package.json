@@ -17,6 +17,7 @@
     "@aether/policy": "workspace:*",
     "@aether/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@aether/memory": "workspace:*"
+    "@aether/memory": "workspace:*",
+    "@aether/codemode": "workspace:*"
   }
 }

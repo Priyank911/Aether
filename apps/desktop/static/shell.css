@@ -1,0 +1,222 @@
+/* Tokens from plan 3.1, section 10.1. */
+:root {
+  --frame: #e8ebef;
+  --surface: #ffffff;
+  --field: #f1f3f5;
+  --hover: #00000012;
+  --border: #d5d9de;
+  --text: #1b1d21;
+  --text-muted: #5b616b;
+  --focus: #2558d6;
+  --agent: #2f6bff;
+  --wait: #b76e00;
+  --font: "Segoe UI Variable", "Segoe UI", -apple-system, system-ui, sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --frame: #1b1c1f;
+    --surface: #28292d;
+    --field: #323438;
+    --hover: #ffffff14;
+    --border: #3b3d42;
+    --text: #e8eaed;
+    --text-muted: #a2a7b0;
+    --focus: #7aa2ff;
+    --agent: #2f6bff;
+    --wait: #f5a524;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--frame);
+  color: var(--text);
+  font: 400 13px/1.35 var(--font);
+  user-select: none;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.strip {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 36px;
+  padding: 0 8px;
+}
+
+.space {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  margin-right: 4px;
+}
+
+.space select {
+  border: 0;
+  background: transparent;
+  font-weight: 600;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.dot.agent {
+  background: var(--agent);
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 200px;
+  min-width: 72px;
+  height: 32px;
+  padding: 0 6px 0 10px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: default;
+  text-align: left;
+}
+
+.tab:hover {
+  background: var(--hover);
+}
+
+.tab[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.tab .title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.tab.sleeping .title {
+  opacity: 0.6;
+}
+
+.tab .close {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.tab .close:hover {
+  background: var(--hover);
+}
+
+.icon {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.icon:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.icon:disabled {
+  opacity: 0.4;
+}
+
+.strip .icon {
+  align-self: center;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.omnibox {
+  flex: 1;
+  margin: 0 4px;
+}
+
+.omnibox input {
+  width: 100%;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--field);
+  font-size: 14px;
+  user-select: text;
+}
+
+.omnibox input:focus {
+  background: var(--surface);
+  border-color: var(--focus);
+  outline: none;
+}
+
+.notice {
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 12px;
+}

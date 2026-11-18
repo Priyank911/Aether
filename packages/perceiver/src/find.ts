@@ -10,6 +10,17 @@ interface Hit {
   order: number;
   ref?: string;
   text: string;
+  match: FindMatch;
+}
+
+/** One ranked match, as data. Text matches carry the ref of their nearest kept ancestor, if any. */
+export interface FindMatch {
+  ref?: string;
+  role: string;
+  name: string;
+  /** Region the match sits in, such as "[e4] form". */
+  scope?: string;
+  visibility: Visibility;
 }
 
 function normalize(text: string): string {
@@ -26,6 +37,11 @@ function scopeLabel(model: PageModel, ref: string | undefined): string {
   return node ? ` in [${ref}] ${node.role}` : '';
 }
 
+function scopeName(model: PageModel, ref: string | undefined): string | undefined {
+  const node = ref ? model.byRef.get(ref) : undefined;
+  return node && ref ? `[${ref}] ${node.role}` : undefined;
+}
+
 function snippet(text: string, query: string): string {
   const position = text.toLocaleLowerCase().indexOf(query);
   if (position < 0) return text;
@@ -38,7 +54,7 @@ function snippet(text: string, query: string): string {
  * the viewport and past any budget. Exact match ranks above word match above
  * substring; elements rank above text on a tie.
  */
-export function renderFind(model: PageModel, query: string, role?: string, limit = FIND_LIMIT): RenderResult {
+function rankFind(model: PageModel, query: string, role?: string): Hit[] {
   const needle = normalize(query);
   if (!needle) throw new Error('find needs a non-empty query');
   const word = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(needle)}(?:$|[^\\p{L}\\p{N}])`, 'u');
@@ -65,6 +81,7 @@ export function renderFind(model: PageModel, query: string, role?: string, limit
       order,
       ref,
       text: `${nodeLine(node)}${visibilityNote(node.visibility)}${scopeLabel(model, model.scopeOf.get(ref))}`,
+      match: { ref, role: node.role, name: node.sensitive ? node.name : node.name || (node.value ?? ''), scope: scopeName(model, model.scopeOf.get(ref)), visibility: node.visibility },
     });
   });
 
@@ -84,6 +101,7 @@ export function renderFind(model: PageModel, query: string, role?: string, limit
         visibility: line.visibility,
         order: model.order.length + order,
         text: `text ${quote(shown, 100)}${visibilityNote(line.visibility)}${scopeLabel(model, anchor)}`,
+        match: { ref: anchor, role: 'text', name: shown.slice(0, 160), scope: scopeName(model, anchor), visibility: line.visibility },
       });
     });
   }
@@ -96,6 +114,17 @@ export function renderFind(model: PageModel, query: string, role?: string, limit
       a.order - b.order,
   );
 
+  return hits;
+}
+
+/** Ranked matches as data, for Code Mode. */
+export function findMatches(model: PageModel, query: string, role?: string, limit = FIND_LIMIT): FindMatch[] {
+  return rankFind(model, query, role).slice(0, limit).map((hit) => hit.match);
+}
+
+/** Ranked matches as the text view returned to the model. */
+export function renderFind(model: PageModel, query: string, role?: string, limit = FIND_LIMIT): RenderResult {
+  const hits = rankFind(model, query, role);
   const shown = hits.slice(0, limit);
   const head =
     hits.length === 0

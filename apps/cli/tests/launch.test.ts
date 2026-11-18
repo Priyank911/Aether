@@ -34,14 +34,17 @@ describe('MCP launch as documented for hosts', () => {
     }
   }, 45000);
 
-  it('lists the eight tools through the compiled entry point', async () => {
-    const client = new Client({ name: 'launch-test', version: '1.0.0' });
-    await client.connect(new StdioClientTransport({ command: process.execPath, args: [ENTRY, 'mcp', '--direct', '--headless'], stderr: 'inherit' }));
-    try {
-      const { tools } = await client.listTools();
-      expect(tools.map((tool) => tool.name).sort()).toEqual(['act', 'ask', 'done', 'find', 'look', 'memory', 'open', 'screenshot']);
-    } finally {
-      await client.close().catch(() => undefined);
+  it('serves only the four Code Mode tools through the compiled entry point, with or without the old flag', async () => {
+    for (const args of [['mcp', '--direct', '--headless'], ['mcp', '--codemode', '--direct', '--headless']]) {
+      const client = new Client({ name: 'launch-test', version: '1.0.0' });
+      await client.connect(new StdioClientTransport({ command: process.execPath, args: [ENTRY, ...args], stderr: 'inherit' }));
+      try {
+        const { tools } = await client.listTools();
+        expect(tools.map((tool) => tool.name).sort()).toEqual(['aether_done', 'aether_exec', 'aether_screenshot', 'aether_spaces']);
+        expect(client.getInstructions()).toContain('aether_exec');
+      } finally {
+        await client.close().catch(() => undefined);
+      }
     }
-  }, 45000);
+  }, 60000);
 });

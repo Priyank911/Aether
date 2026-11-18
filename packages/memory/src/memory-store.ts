@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseHandle } from './database.js';
 import { isSecretText } from '@aether/shared';
 
 /** After this many failures in a row a procedure is stale and no longer advertised. */
@@ -68,9 +68,9 @@ function refuseSecrets(...texts: string[]): void {
  * Nothing here leaves the machine except what a tool result returns.
  */
 export class MemoryStore {
-  private readonly db: Database.Database;
+  private readonly db: DatabaseHandle;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseHandle) {
     this.db = db;
   }
 

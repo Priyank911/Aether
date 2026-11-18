@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https: data:">
+  <title>Aether</title>
+  <link rel="stylesheet" href="shell.css">
+</head>
+<body>
+  <!-- Interim shell for Step 2: the full React shell (plan 3.1, section 10) replaces it in Step 4. -->
+  <div class="strip" role="tablist" aria-label="Tabs">
+    <label class="space">
+      <span class="dot" id="space-dot" aria-hidden="true"></span>
+      <select id="space" aria-label="Space"></select>
+    </label>
+    <div class="tabs" id="tabs"></div>
+    <button class="icon" id="new-tab" type="button" aria-label="New tab" title="New tab (Ctrl+T)">+</button>
+  </div>
+  <div class="bar">
+    <button class="icon" id="back" type="button" aria-label="Back" title="Back (Alt+Left)">&#8592;</button>
+    <button class="icon" id="forward" type="button" aria-label="Forward" title="Forward (Alt+Right)">&#8594;</button>
+    <button class="icon" id="reload" type="button" aria-label="Reload" title="Reload (Ctrl+R)">&#8635;</button>
+    <form id="omnibox-form" class="omnibox" role="search">
+      <input id="omnibox" type="text" spellcheck="false" autocomplete="off" aria-label="Address and search" placeholder="Search or type a web address">
+    </form>
+    <span class="notice" id="notice" role="status" aria-live="polite"></span>
+  </div>
+  <script src="shell.js"></script>
+</body>
+</html>

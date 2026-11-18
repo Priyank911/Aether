@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 /*
- * Tool argument schemas. They are flat objects with no unions, because some
- * model providers reject nested anyOf in tool JSON Schema. Descriptions are
- * kept short and length limits are left to the handlers: all eight tool
- * definitions together must stay under 900 tokens.
+ * Engine operation schemas: open, look, find, act, screenshot, ask, memory,
+ * done. These were the 2.0 MCP tools; hosts no longer see them. Code Mode's
+ * space.* calls run on these operations, so the schemas still validate every
+ * call the engine executes. The host-facing tools are in host-tools.ts.
  */
 
 export const RefSchema = z.string().regex(/^e\d+$/, 'Refs look like e12');

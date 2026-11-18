@@ -16,6 +16,7 @@ import {
   UPLOAD_PAGE_HTML,
 } from './pages.js';
 import { SHOP_LISTING_HTML, SHOP_PRODUCT_HTML } from './shop.js';
+import { CONSENT_PAGES } from './consent.js';
 
 export interface FixtureServers {
   mainBaseUrl: string;
@@ -57,6 +58,8 @@ export async function startFixtureServers(
       res.end(LONG_PAGE_HTML);
     } else if (url === '/upload.html') {
       res.end(UPLOAD_PAGE_HTML);
+    } else if (url.startsWith('/consent/') && CONSENT_PAGES[url.slice('/consent/'.length).replace(/\.html$/, '')]) {
+      res.end(CONSENT_PAGES[url.slice('/consent/'.length).replace(/\.html$/, '')]);
     } else if (url.startsWith('/shop/list')) {
       res.end(SHOP_LISTING_HTML(url.includes('page=2') ? 2 : 1));
     } else if (/^\/shop\/item\/\d+$/.test(url) && SHOP_PRODUCT_HTML(Number(url.split('/').pop()))) {

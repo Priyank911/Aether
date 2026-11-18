@@ -1,35 +1,28 @@
-import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
+import { MCPBrowserSession } from '../src/mcp/browser-session.js';
+import { engineClient, type EngineClient } from './engine-client.js';
 import { call, refIn, tokens } from './helpers.js';
 
 /**
  * Step 2 exit gate: the four fixture tasks of docs/METRICS.md, driven through
- * the shipped stdio entry point by a scripted client in place of a model.
+ * the engine operations by a scripted client in place of a model (Code Mode scripts run on these).
  */
-describe('Step 2 fixture tasks over stdio', () => {
+describe('Step 2 fixture tasks on the engine', () => {
   let fixtures: FixtureServers;
-  let client: Client;
+  let session: MCPBrowserSession;
+  let client: EngineClient;
   const spent = new Map<string, number>();
 
   beforeAll(async () => {
     fixtures = await startFixtureServers(4111, 4112);
-    client = new Client({ name: 'aether-task-runner', version: '1.0.0' });
-    await client.connect(
-      new StdioClientTransport({
-        command: process.execPath,
-        args: [path.resolve('node_modules/tsx/dist/cli.mjs'), path.resolve('apps/cli/src/index.ts'), 'mcp', '--headless', '--direct'],
-        cwd: process.cwd(),
-        stderr: 'inherit',
-      }),
-    );
+    session = await MCPBrowserSession.launch({ headless: true, ephemeral: true });
+    client = engineClient(session);
   }, 45000);
 
   afterAll(async () => {
     for (const [task, count] of spent) console.log(`${task}: ${count} result tokens`);
-    await client?.close().catch(() => undefined);
+    await session?.close();
     await fixtures?.close();
   });
 

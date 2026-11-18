@@ -1,41 +1,23 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
-import { createAetherMcpServer, MCPBrowserSession } from '../src/mcp/index.js';
-import { call, refIn, tokens } from './helpers.js';
+import { MCPBrowserSession } from '../src/mcp/index.js';
+import { engineClient, type EngineClient } from './engine-client.js';
+import { call, refIn } from './helpers.js';
 
-describe('MCP tool surface over Direct CDP', () => {
+describe('Engine operations over Direct CDP', () => {
   let fixtures: FixtureServers;
   let browser: MCPBrowserSession;
-  let server: McpServer;
-  let client: Client;
+  let client: EngineClient;
 
   beforeAll(async () => {
     fixtures = await startFixtureServers(4105, 4106);
     browser = await MCPBrowserSession.launch({ headless: true });
-    server = createAetherMcpServer(browser);
-    client = new Client({ name: 'aether-mcp-test-client', version: '1.0.0' });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
+    client = engineClient(browser);
   }, 30000);
 
   afterAll(async () => {
-    await client?.close().catch(() => undefined);
-    await server?.close().catch(() => undefined);
     await browser?.close();
     await fixtures?.close();
-  });
-
-  it('lists exactly the eight tools within the 900 token definition budget', async () => {
-    const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['act', 'ask', 'done', 'find', 'look', 'memory', 'open', 'screenshot']);
-    // What a host can pass to the model: name, description and input schema. The MCP execution field is protocol metadata.
-    const definitionTokens = tokens(JSON.stringify(tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))));
-    console.log(`tool definitions: ${definitionTokens} tokens`);
-    expect(definitionTokens).toBeLessThanOrEqual(900);
   });
 
   it('wraps page text with a per-call nonce and the page origin', async () => {

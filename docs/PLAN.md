@@ -1,25 +1,71 @@
 # Aether: Agentic Browser Plan
 
-Working title: Aether. Version 2.0. Date: 2026-11-11. Status: Steps 0 to 6 built and tested on 2026-11-11 (spikes S1, S2 and S4 run, S3 needs a person; see `docs/SPIKES.md`). Steps 7 and 8 need recorded runs with a model and are not started. Replaces version 1.0.
+Working title: Aether. Version 3.1. Date: 2026-11-18. Status: Step 0 done (2026-11-18). Step 1 done (2026-11-18): spike S5 (Design A), Code Mode as `aether mcp --codemode`, Smart Landing with the cookie banner setting (D3). The eight 2.0 MCP tools were removed on 2026-11-18: `aether mcp` serves only the four Code Mode tools. Step 2 done (2026-11-18): Electron core in `apps/desktop` (`pnpm desktop`), Electron CDP transport, Spaces with sleeping tabs, agent host window, memory watchdog, request filter, hardening, SQLite persistence; exit tests pass. Next: Step 3. Supersedes 3.0 (draft of 2026-11-18, kept at `D:\.md\aether plan v3.md`) and 2.0 (Chrome MV3 extension and 8-tool MCP server, kept at `docs/PLAN-v2.md`). The perception, action, policy and memory packages from 2.0 are kept as the engine kernel.
+
+Baseline on 2026-11-18: 17 test files, 146 tests, all passing; `pnpm typecheck` and `pnpm lint` clean (2 pre-existing lint warnings).
+
+---
+
+## 0. Review of 3.0 (what 3.1 changes and why)
+
+3.0 is kept in substance. These are the gaps and conflicts found when checking it against Electron's behaviour, the 2.0 code, and the stated goal of a minimal, Chrome-like browser. Each item names the section of this plan that resolves it.
+
+| # | Gap or conflict in 3.0 | Resolution in 3.1 |
+|---|---|---|
+| R1 | The floating pill, ghost cursor and "shell overlay" are drawn in the shell's React DOM, but a `WebContentsView` is a native view stacked above the shell renderer. Shell DOM cannot draw over a page. Omnibox suggestions and menus have the same problem. | One transparent **Shell Overlay view** stacked above the tab view, attached only when needed (4.4). The handoff controls move to an **Agent bar** row above the viewport, as Chrome does with infobars (10.3). |
+| R2 | The person asked that their input be blocked while the agent acts, until they press Take over. 3.0 rule 9.6 instead treats any person input as a takeover. | While `acting`, the Shell Overlay view acts as an input shield. Person input is held off and the shield shows "Press Take over or Esc". CDP input from the engine goes straight to the tab renderer and is unaffected (9.6, spike S8). |
+| R3 | `node:vm` is documented by Node as not a security boundary. A `vm` escape inside a `worker_threads` worker reaches full Node (`process`, `fs`). | S5 tests both the worker-plus-`vm` design and a sandboxed hidden renderer (Chromium sandbox, no Node, network blocked). The first design is used only if S5 finds no escape (7.1). |
+| R4 | `aether_exec` may return a "pending handoff token" after 50 s, but none of the 4 tools accepts that token, so the host cannot collect the result. | `aether_exec` gains `wait?: string`. Calling it with the token and no code resumes waiting (8.1). |
+| R5 | `PageBrief`, `BucketItem`, `SurveyResult`, `FindMatch` and `ActDelta` are used in the SDK but never defined. | Defined in 7.2. `BucketItem` matches `packages/perceiver/src/bucket.ts`. |
+| R6 | 3.0 claims "zero native addon ABI fragility", but `better-sqlite3` is a native addon that must be rebuilt for Electron's Node ABI. | Decision D2 (16): `node:sqlite` (built in, no rebuild) or `better-sqlite3` plus `@electron/rebuild`. |
+| R7 | Packaging and installing an Electron app needs a packager, and none is in the stack. | Decision D1 (16). Until then, run from source with `pnpm desktop`. |
+| R8 | On Windows, Chrome 127+ encrypts cookies with App-Bound Encryption. Another app cannot decrypt them without Chrome's elevation service. The person develops on Windows. | S6 must measure this first. Expected outcome on Windows: bookmarks and history import, cookies do not, and the person signs in once inside Aether (11.1). |
+| R9 | Google and some banks refuse sign-in from embedded Chromium (Electron) even with a Chrome user agent. This breaks the "already logged in" goal for those sites. | Added to S6. If it fails, the documented path is to sign in from the Human Space and send the tab to the Agent Space (11.1). |
+| R10 | Hidden or detached `WebContentsView`s are throttled by Chromium: timers slow, `IntersectionObserver` lazy loading may not fire, and paint order may be stale. `mapPages` and `items` depend on all three. | Agent tab views use `backgroundThrottling: false` and keep real off-screen bounds. Verified in S7 (5.2). |
+| R11 | Missing basic browser features a person expects from a Chrome-like browser: error pages, find in page, context menu, downloads UI, permission prompts, HTTP auth, certificate errors, external protocols, fullscreen, PDF, zoom, print, new tab page. | Section 10.6 lists each with the Electron hook used. |
+| R12 | Electron security settings are not stated. | Section 9.7. |
+| R13 | "Like Chrome" (the person's request) conflicts with the 3.0 left sidebar of vertical tabs. | Horizontal tab strip with a Space switcher at its left, as in Chrome. The side panel on the right holds Activity and Memory (10.2). |
+| R14 | The shell UI had no design system, copy rules or accessibility rules. 3.0 colours also fail contrast: amber `#F5A524` on white is 2.0:1, below the 3:1 needed for UI components. | Section 10.1 gives tokens, 10.4 copy, and 10.5 accessibility, written with the design-system, ux-copy and accessibility-review skills. |
+| R15 | Approving URLs one by one in `mapPages` over 30 new origins means 30 approvals. | One batched approval card lists all held URLs (9.4). |
+| R16 | Two `aether_exec` calls on the same Space at once are undefined. Variables between calls are undefined. | Calls are serialized per Space. Each call gets a fresh context plus `space.state`, a small JSON store that persists across calls (7.2). |
+| R17 | Cookie banner auto-dismiss clicks "Accept all", which is a privacy choice made for the person. | Prefer "Reject all" or "Only necessary". Accept only if no reject control exists and the setting allows it (6.1). |
+| R18 | The steps put the daemon after the UI, so the person cannot drive Electron from a host until Step 4. Code Mode also could not be tried until Electron existed. | Code Mode is exposed first on the current 2.0 engine. The daemon now comes before UI polish (14). |
+| R19 | The skill install path covers Antigravity only. The person currently tests in VS Code Copilot, which has no skills folder. | The skill installs for Claude Code and Antigravity. The same text ships as MCP server `instructions`, and the SDK declaration ships in the `aether_exec` description for hosts without skills (8.2). |
+| R20 | Spike id S5 was already used in `docs/SPIKES.md` (items on real listings). | That entry is renamed S4b. 3.0 spike ids are kept. |
+| R22 | 3.0 is written against the 2025 MCP handshake. MCP 2026-07-28 removes `initialize`, adds `server/discover`, Multi Round-Trip Requests and a Tasks extension, and has an official Skills extension. | Section 8.3: a dual-era server; Tasks for held runs when the host supports it; no approvals over elicitation; the skill served over MCP when supported. |
+| R21 | 3.0 Step 0 says form tests fail. They pass on the 2026-11-18 baseline. | Step 0 keeps the `FORM` tag fix as a hardening task with its own fixture test, not as a regression fix. |
 
 ---
 
 ## 1. Motive
 
-Build an agent engine that operates a real, logged-in Chrome the way a person does: glance at the page, focus on the relevant region, act, and check what changed. It must complete research, search, booking, registration and purchase tasks with at least 80 percent fewer tokens per successful task than a full-snapshot browser agent, and hand control to the human and back without losing state.
+Build a desktop browser where a person and AI agents work side by side in separate Spaces without getting in each other's way. The connected host (Claude Code, VS Code Copilot, Cursor, Antigravity, Codex) supplies the reasoning, and Aether holds no API keys. Aether supplies:
+
+- an Electron browser that keeps working when a page crashes;
+- deterministic page landing;
+- a sandboxed TypeScript Code Mode that runs multi-step and multi-tab work in one host turn;
+- a quiet, Chrome-like interface with a live activity view and one-click handoff.
 
 Anything that does not serve that paragraph is out of scope.
 
+---
+
 ## 2. Rules that never bend
 
-1. The engine owns perception, action, policy, memory and logging. Chrome owns the browser UI. Aether adds only an edge overlay on agent tabs and a side panel.
-2. Never send a page to the model. Send a skim, then a focused region on request, then deltas.
-3. We own the CDP client. No agent frameworks. No Playwright or Puppeteer in the control path.
-4. Every optimization must beat a recorded baseline or be deleted. Code with no caller is deleted.
-5. Page content is untrusted. It never gets authority over tools, policy, approvals or memory.
-6. One run state machine in the engine is the single source of truth. The overlay, the side panel and tool results all render that state; none of them keeps its own.
-7. Approvals and answers come only from the side panel. A model-supplied argument can never unlock an action.
-8. A ref is an identity. It is never re-bound to a different element.
+1. **A browser stays a browser.** Chain-of-thought prose, Code Mode source and chat stay in the host. Aether shows only these:
+   - tabs and Spaces;
+   - pages;
+   - one-line activity milestones;
+   - the Agent bar and its decision card.
+2. **Code Mode over tool ping-pong.** Navigation, pagination, filtering and multi-tab fan-out run as TypeScript in the sandbox, not as many sequential model calls.
+3. **The person's focus is protected.** Agents work only in Agent Spaces. An agent never reads, changes or focuses the Human Space, takes OS window focus, or moves the person's cursor.
+4. **Resources are governed by measured pressure, not fixed caps.** Live tabs, concurrency and disk use scale from available memory, CPU count and free disk. Unviewed tabs are kept as metadata only. Overrides live in `~/.aether/config.json`.
+5. **Never send a raw page to the model.** Only skims, focused regions, item harvests, surveys and deltas leave the engine. Every page-derived value is wrapped in `<page untrusted nonce=... origin=...>`.
+6. **Page content is untrusted and Code Mode has only capabilities.** Sandbox code has no filesystem, network, process or raw CDP access. Every `space.*` call passes Policy and URL provenance in the main process.
+7. **We own the CDP client and control path.** No Playwright, Puppeteer, LangChain or agent frameworks. Input is trusted CDP `Input.*` over `webContents.debugger`.
+8. **One state machine per Space.** The tab strip, viewport frame, Agent bar, side panel and host tool results all render that one state.
+9. **Approvals and secrets come only from the person in Aether.** No model argument or script can approve an irreversible action or read a masked value.
+10. **A ref is an identity.** It is never reused or re-bound to another element.
 
 ---
 
@@ -27,26 +73,25 @@ Anything that does not serve that paragraph is out of scope.
 
 | Layer | Choice | Notes |
 |---|---|---|
-| UI | Stock Google Chrome, minimum version 125 | Flat debugger sessions need 125. |
-| Eval browser | Stock Chrome or Chrome for Testing, pinned | Isolated `--remote-debugging-port=0` and `--user-data-dir`. |
-| Control protocol | Chrome DevTools Protocol, own thin client over `ws` | Frame-level sessions, trusted `Input.*` events. |
-| Real-profile transport | MV3 extension using `chrome.debugger`; WebSocket from the extension service worker to the engine; native messaging host for bootstrap only | See 4.2. Subject to spike S1. |
-| Eval transport | Direct CDP to an isolated Chrome | Deterministic tests, no extension. |
-| Language and runtime | TypeScript (strict), Node LTS >= 22, pinned in `.nvmrc` | |
-| Package manager | pnpm workspaces | |
-| Extension build | WXT with React | |
-| Extension permissions | `debugger`, `nativeMessaging`, `sidePanel`, `tabs`, `tabGroups`, `scripting`, host permission `<all_urls>` | `tabGroups` for the agent workspace, `scripting` and host permission for the overlay content script. |
-| Side panel and overlay | React (side panel), plain DOM (overlay), plain CSS with shared design tokens | No component or CSS library. |
-| Validation | zod | All tool and wire schemas in `packages/shared`. |
-| Logging | pino (JSON lines) | Listed in 1.0 but never installed. |
-| Storage | SQLite through `better-sqlite3`, file `~/.aether/aether.db` | Memory and run log. Listed in 1.0 but never installed. |
-| Tests | vitest plus the local fixture server | |
-| Lint | Biome | |
-| Agent reasoning | The connected MCP host supplies the model and the agent loop | No LLM API key in Aether. |
-| Agent connection | `@modelcontextprotocol/sdk` over stdio | |
-| OS | Windows first | |
+| Desktop shell | Electron (`BaseWindow` + `WebContentsView`), current stable at Step 2 | Must bundle Node >= 22.13 for `stripTypeScriptTypes` (Electron 35 or later). |
+| Shell UI | React 19 + plain CSS with shared tokens (10.1), bundled with `vite` and `@vitejs/plugin-react` | No component library, no icon library; icons are inline SVG drawn for Aether. |
+| Tab control | In-process CDP via `webContents.debugger`, wrapped in `@aether/cdp` | Same `CDPClient` contract as 2.0. |
+| Eval and CI transport | Direct CDP to headless Chrome (`@aether/cdp` launcher) | Fixture tests without a display. |
+| Language and runtime | TypeScript strict, Node >= 22.13 | `node:module` `stripTypeScriptTypes` for Code Mode. |
+| Package manager | pnpm workspaces | `electron` added to `allowBuilds` for its binary download. |
+| Code Mode sandbox | Decided by S5: `worker_threads` + `vm`, or a sandboxed hidden renderer | 7.1. |
+| Validation | `zod` | All IPC, daemon, Code Mode RPC and MCP schemas in `packages/shared`. |
+| Logging | `pino` | `~/.aether/aether.log`, rotated on start and by size. |
+| Storage | SQLite through `node:sqlite` (decision D2), `~/.aether/aether.db` | Built into Node and Electron; no native module. |
+| Agent reasoning | The connected host | No model SDKs or keys in Aether. |
+| Host connection | `@modelcontextprotocol/sdk` stdio shim -> one local daemon in Aether Desktop | |
+| Chrome import | Own importer using the SQLite driver and `node:crypto` | Subject to S6. |
+| Packaging | Decision D1 | Not chosen; run from source until decided. |
+| Tests | `vitest` + `@aether/fixtures` | Electron end-to-end tests drive the app through the daemon socket and `--remote-debugging-port` on the shell (14, Step 2). |
+| Lint | Biome (WASM runner, `scripts/lint.mjs`) | |
+| OS | Windows, Linux, macOS | Windows is the first development target, because it is the person's machine. |
 
-No other libraries. Page-to-text conversion and diffing are written in this repo.
+No other libraries. `apps/extension` and `apps/native-host` stay working until Step 6, so there is always a usable path.
 
 ---
 
@@ -55,364 +100,730 @@ No other libraries. Page-to-text conversion and diffing are written in this repo
 ### 4.1 Components
 
 ```
-MCP host (model + loop)
-   |  MCP stdio, 8 tools
-aether engine (Node)
-   RunState | Perceiver | Actor | Policy | Memory | Log
-   |  CDP over ws (same client for both transports)
-   +-- eval:  isolated Chrome, direct
-   +-- real:  loopback WebSocket <--- extension service worker --- chrome.debugger --> agent tab
-                  ^ port + token
-              native host (bootstrap only)
-
-Extension: service worker (CDP proxy, tab group, state fan-out)
-           overlay content script (edge light, status pill)
-           side panel (steps, questions, approvals, memory)
+Host (Claude Code / VS Code Copilot / Cursor / Antigravity)
+  |  /aether skill or MCP instructions; shows reasoning, code and answers
+  |  MCP stdio -> `aether mcp` (stateless forwarder)
+  v
+Local daemon (named pipe on Windows, ~/.aether/aether.sock elsewhere; token in ~/.aether/daemon.json)
+  v
+Aether Desktop main process (Electron + Node)
+  +-- SpaceManager        Human Space + Agent Spaces, one SpaceRunState each
+  +-- TabLifecycle        live views, hibernated tabs, MemoryWatchdog, crash isolation
+  +-- SmartLanding        settle, consent banner, archetype
+  +-- CodeModeHost        sandbox per run, capability RPC for space.*
+  +-- Kernel              Perceiver | Actor | Policy | Memory | RunLog
+  +-- ShellWindow         BaseWindow with three view layers (4.4)
 ```
 
-### 4.2 Transport
+### 4.2 Single-instance daemon
 
-Version 1.0 relayed every CDP frame through native messaging, which caps a message at 1 MiB. Accessibility trees and screenshots of real pages exceed that, and the perceiver then returned an empty outline.
+1. Aether Desktop owns the only daemon. It uses `app.requestSingleInstanceLock()` so a second launch focuses the first window.
+2. `aether mcp` is a stateless stdio-to-daemon forwarder. If the daemon is absent, it starts Aether Desktop, waits up to 15 s for the socket, then forwards. Nothing is printed to stdout except JSON-RPC (the 2.0 launch test is kept).
+3. Every connection authenticates with the token from `~/.aether/daemon.json`, which is readable only by the owner. Each host session gets its own Agent Space, and sessions never disconnect each other.
+4. `aether mcp --direct --headless` keeps the 2.0 headless Chrome path for CI and the Step 1 trial.
 
-Version 2.0:
-
-- The engine listens on `127.0.0.1` on a random port and writes `{port, token}` to `~/.aether/bridge.json` (owner-only).
-- The native host does one job: read that file and hand `{port, token}` to the extension over native messaging, then report when the file changes or disappears. It carries no CDP traffic.
-- The extension service worker opens the WebSocket itself. Chrome sets the `Origin` header, so the engine checks a real extension origin plus the token. The first message is an auth frame carrying the token; the socket is closed if it is wrong or late.
-- Two message kinds on the socket: CDP frames (request, response, event) and run-state frames (4.3). Both are zod schemas.
-- Application-level keepalive with acknowledgement detects a hibernated service worker. An input command whose reply is lost is never replayed; the tool result says delivery is unverified and the model must look before retrying.
-- When the debugger detaches for any reason the extension sends an explicit detach event, the engine clears refs and frames, and the next call re-attaches and re-enables domains.
-
-Spike S1 decides whether a service-worker WebSocket to loopback stays alive for a whole run. If it does not, the fallback is chunked frames over native messaging; the spike result is reported before either is built.
-
-### 4.3 Run state machine
+### 4.3 Space state machine
 
 ```
-idle -> acting -> waiting_human -> resuming -> acting -> ... -> idle
+idle -> acting -> waiting_human -> resuming -> acting -> ... -> done -> idle
 ```
 
-`waiting_human` has a reason: `question`, `approval`, `must_perform`, `user_interrupted`, `captcha`.
+`waiting_human` carries one reason: `question`, `approval`, `must_perform`, `user_interrupted`, or `captcha`.
 
-- `acting`: a tool call is executing. Overlay is blue.
-- `waiting_human`: the engine holds the pending tool call. Overlay is amber, the side panel shows one card for the reason.
-- `resuming`: the human finished. The engine clears refs, takes a fresh skim and returns it as the result of the held call, prefixed with one line stating what the human did (`answered: ...`, `approved`, `denied`, `human acted`).
-- Every transition is one `aether.state` frame to the extension, which fans it out to the overlay and side panel. Reloading either re-reads the current state from the service worker.
+- **`acting`**: a script or action runs in this Space.
+  - The viewport frame and the Space chip pulse blue.
+  - The Shell Overlay shield is attached while the person views the Space.
+- **`waiting_human`**: the sandbox is paused at the `space.*` call that caused the hold.
+  - Frame, chip and Agent bar turn amber, and the shield is removed.
+  - The decision card opens in the side panel.
+- **`resuming`**: the person answered, approved, denied, or pressed "Hand back to Aether".
+  - The engine re-captures the page, then resolves or rejects the paused call.
+  - On a denial, the script gets a rejected promise and may handle it.
+- **`done`**: the frame turns off and the tabs stay browsable until the person closes or archives the Space.
 
-A held tool call waits up to 50 seconds, then returns `pending handoff=<id>`; the model calls `ask` with that id to keep waiting. This keeps the pipeline synchronous for the model without exceeding host tool timeouts.
+Take over and Stop act at once, whether or not an engine call is in flight. This is the behaviour fixed in 2.0 on 2026-11-13.
 
-### 4.4 Agent workspace
+### 4.4 Window layers (new in 3.1)
 
-The agent works only in tabs inside a Chrome tab group named "Aether", coloured blue.
+A `BaseWindow` holds three view layers, bottom to top:
 
-- `open` creates the group's first tab if none exists. Tabs opened by agent clicks join the group and become the active agent tab.
-- A mutating action never falls back to the user's active tab. The user can add the current tab to the group from the side panel ("Let Aether use this tab").
-- The group shares the profile's cookies and logins. It is a visibility and targeting contract, not a security boundary.
-- Internal pages (`chrome:`, extension pages, the Web Store, `file:`) are never attached.
+1. **Shell view**: the React shell (tab strip, toolbar, Agent bar, side panel). Full window bounds.
+2. **Tab view**: the active tab's `WebContentsView`, placed in the viewport rectangle. In an Agent Space it is inset by 2 px so the frame drawn by the shell view shows around it.
+3. **Shell Overlay view**: a transparent `WebContentsView` (`setBackgroundColor('#00000000')`) over the viewport rectangle. It is attached only while needed:
+   - Input shield while `acting` and the Space is visible. It takes the person's clicks and keys and shows the hint "Aether is working. Press Take over or Esc."
+   - Ghost cursor and target reticle, drawn from Actor `onActionTarget` coordinates.
+   - Omnibox suggestions, the Space switcher menu, and toasts, while open.
+
+When no overlay is needed, the view is removed and the page gets input directly. Overlay content never appears in `capturePage` of the tab, so screenshots stay clean. Native `Menu.popup` is used for the main menu and the page context menu.
 
 ---
 
-## 5. Perception: skim, focus, read
+## 5. Spaces, tabs and resource lifecycle
 
-A person does not read a page top to bottom. They glance at the layout, look at the region that matters, and read text only when the task is to read. The perceiver has the same three levels, and the model pays only for the level it asks for.
+### 5.1 Spaces
 
-### 5.1 Capture
+1. **Human Space ("Personal")**:
+   - The default Space: normal tabs, history, bookmarks, DevTools.
+   - Agents have no API to read, list, change or focus its tabs.
+   - The only bridge is the person's own command **Send tab to Agent Space** (tab context menu or toolbar). It moves the tab and its history.
+2. **Agent Spaces**:
+   - One per task, named by the host (`space` argument) or after the task.
+   - They share the `persist:aether` partition by default, so signed-in sites work. An `ephemeral` partition is available for clean-room tasks.
+3. **Background execution**:
+   - Agent Spaces run while the person stays in the Human Space.
+   - Choosing an Agent Space in the switcher moves its active view into the viewport at once.
 
-Per frame: `Accessibility.getFullAXTree` for roles, names and states; one `DOMSnapshot.captureSnapshot` per session for bounding boxes, paint order, attributes and the `display`, `pointer-events` and `visibility` styles, joined on `backendDOMNodeId`. Spike S2 (`docs/SPIKES.md`) found the snapshot cheaper than batched `DOM.getBoxModel` on every large page, and the accessibility tree itself the dominant cost, so the snapshot is used and capture latency on large pages is a Step 8 item.
+### 5.2 Hibernated tabs and pressure governance
 
-A control is marked `[covered]` when a node in a strictly later paint layer sits over its centre and is unrelated to it (not itself, an ancestor, a descendant, or part of the same label). Each such mark in the main frame is then confirmed with the browser's own hit test, because the snapshot does not report clipping.
+1. **Tab record**: `{ id, spaceId, url, title, favicon, scrollY, state: 'live' | 'loading' | 'hibernated' | 'crashed' }`. A hibernated tab has no renderer.
+2. **`space.openTabs(urls, { lazy })`**:
+   - Mounts the first tab.
+   - Mounts more in the background only while free memory is above the reserve.
+   - Records the rest as hibernated.
+   - Returns `{ tabIds, live, hibernated }`.
+3. **`space.mapPages(urls, fn)`**:
+   - Concurrency before each dispatch = `min(availableParallelism() - 1, floor((MemAvailable - reserve) / 350 MB))`, at least 1.
+   - The per-page estimate is 150 MB working set, as measured in S7. It is corrected at run time from `app.getAppMetrics()`.
+   - Each page hibernates after `fn` returns.
+4. **Background views** (S7, 2026-11-18). A view that is not attached to a shown window does not render. Trusted input, `IntersectionObserver`, lazy images, animation frames and screenshots all stop. `setVisible(false)` behaves the same, and `backgroundThrottling: false` alone does not help. Therefore:
+   - Live Agent tabs that the person is not viewing sit in the **agent host window**:
+     - an invisible `BaseWindow`, shown without activation and placed outside every display;
+     - no taskbar entry, not focusable;
+     - the size of the main viewport.
+   - Viewing an Agent Space moves its active view into the main window. Leaving it moves the view back.
+   - Agent tab views use `backgroundThrottling: false`.
+5. **Request filtering in Agent Spaces**: `session.webRequest.onBeforeRequest` blocks a short, hand-maintained list of ad and sync hosts in `packages/policy/src/blocklist.ts`, and autoplay media requests for background views. No third-party filter list is bundled, because of licence terms.
+6. **MemoryWatchdog**: when available memory falls below `minFreeMemoryRatio` (default 0.2), it hibernates the least recently viewed background tabs, a few per check. Scroll position is kept in the tab record. It never sleeps:
+   - the tab on screen;
+   - any Space's active tab (the one its agent works in);
+   - a tab woken less than 30 s ago, so a page an agent just opened is read before it can sleep.
 
-Kept nodes: interactive roles, headings, landmarks, tables (`table`, `row`, `cell`, `columnheader`), and list containers. Ignored and generic containers are flattened. Nodes with no `backendDOMNodeId` are omitted. Password, one-time-code and payment field values are replaced with `***` at one choke point before anything else sees them.
-
-If a frame cannot be read, the result says so outside the untrusted wrapper: `partial capture: 1 frame not read; its content is unknown, not absent`. A failed capture is never returned as an empty page.
-
-### 5.2 Skim (returned by `open`, and by `look` with no arguments)
-
-- Header line: URL, title, frame count, scroll position as a percentage.
-- Elements inside the viewport, one line each, indented under their landmark.
-- For each landmark with content outside the viewport, one summary line: `main e14: 38 more below (26 link, 9 button, 3 textbox)`.
-- Runs of 6 or more same-role siblings collapse to the first 3 plus a count line that names the container ref to expand. Table rows never collapse.
-- A container with a ref (list, table, listbox) keeps its own out-of-view summary line with `look ref=<container> after=<last shown>`, so the model pages through it the way a person scrolls a list. Regions nested inside a region are counted into its summary when out of view; only top-level regions always get a line.
-- Empty unnamed containers and table rows with no text and no controls are omitted.
-- When most controls in view are covered, a `!` line says so and names the controls that are still reachable, which are usually the overlay's own buttons.
-- Any element covered by another element at its centre point is marked `[covered]`; a dialog or overlay that covers the page is listed first.
-- Budget: 1,200 tokens, estimated at 3.5 characters per token. When exceeded, regions at any depth collapse to one summary line each, in the order footer, navigation, complementary, banner, search, region, form, frame, larger first; `main` and dialogs never collapse. If still over, the output is cut with `look ref=<container of the last line> after=<last ref shown>`. Nothing is silently dropped: every omission is a line that names the ref to expand or says `use find`.
-
-Line format: `[e7] button "Submit" [disabled]`. Names truncate at 80 characters, values at 60. Names and values are quoted with inner quotes escaped, and bracketed tokens inside them are rewritten with parentheses (`[e5]` becomes `(e5)`), so page text cannot imitate a ref or a state.
-
-### 5.3 Focus (`look` with a ref)
-
-Returns the full subtree of that ref regardless of viewport and a 1,500 token budget, paged with `after=<ref>`. The direct children of the focused ref never collapse, so paging walks through all of them; deeper runs collapse with a pointer to their container. Tables render as one pipe-separated line per row with the row's ref, so filter and sort tasks keep their structure.
-
-### 5.4 Read (`look` with a ref or none, `as: "text"`)
-
-Returns the visible text of the region as compact markdown (headings, lists, links with their refs, table rows), built from the accessibility tree with line breaks taken from CSS `display`. Text typed into fields appears only as the field's value. Budget 2,000 tokens, paged with a line cursor `after=t<N>` given in the footer. This is the reading path for research tasks; it is never returned by action tools.
-
-### 5.4a Items (`look as: "items"`)
-
-Added 2026-11-13 after observed runs that chose from the first screen of a listing. Published evaluations show the same failure. Agents stop at the first plausible offer (WebMall). They skip filters and sorting: Online-Mind2Web attributes most of Operator's failures to this, and DeepShop reports it too. Observing the whole page also beats observing one viewport (AgentOccam).
-
-`look as=items` works in three stages:
-
-1. Scroll. It scrolls the page with trusted wheel input, up to 10 steps, until the height stops growing, so lazily loaded items exist. Then it returns to the top.
-2. Detect. It groups links outside navigation landmarks by URL path shape (`/item/#`, `/dp/*`) and picks the group whose segments carry the most item detail. Links inside a heading count, since card titles are usually headings.
-3. Print. One line per item: ref, title, prices, rating and review count, sponsored, stock and delivery notes, and the add or select button.
-
-The header gives:
-- the item count, and the count the page states;
-- how many items are new in this run;
-- the sort control;
-- the next page or "more" control, or says none was found.
-
-On a product page it adds the schema.org `Product` facts the page declares in JSON-LD (price, availability, rating, seller). These are page content and stay inside the untrusted wrapper. Budget 2,200 tokens. Distinct items seen are counted per run and reset by `done`.
-
-A plain `look` returns one line instead of the skim when nothing has changed since the last skim: same document, same scroll position, no change.
-
-The method itself is sent once as MCP server `instructions` (`apps/cli/src/mcp/instructions.ts`, under 1,500 characters), which hosts add to the model's system context:
-1. Restate the criteria.
-2. Sort and filter first.
-3. Survey every item and page.
-4. Shortlist at least three.
-5. Open each product page.
-6. Ask when options are close.
-7. Get approval before anything irreversible.
-
-### 5.4b Procedural Harvest & Graph Matcher (`look as: "survey"`)
-
-Added 2026-11-14 to solve the token burning flaw of multi-step agent browsing. Standard agentic browsers burn 50k–200k tokens per shopping/research run by making dozens of micro-action LLM round-trips (`look` -> model -> `click next` -> model -> `scroll` -> model). Inspired by Cloudflare's procedural payload approach, `as="survey"` accepts a procedural goal and executes the multi-page crawl autonomously inside the engine before returning a single, highly refined token-efficient result.
-
-```
-look(as: "survey", query: "running shoe under 100 without Trail", max_pages: 2)
-```
-
-How it works:
-1. **Autonomous Multi-Page Harvesting (`ItemBucket`)**:
-   - For each page up to `max_pages`, the engine executes trusted wheel scrolling to trigger lazy loaders.
-   - Extracts candidate item cards (title, price, ratings, reviews, stock, link URL) into an in-memory `ItemBucket`, deduplicating items across pages via normalized URL slugs.
-   - Autonomously locates and clicks the next page pagination control (`NEXT_PAGE`), waiting for DOM settle.
-2. **Connected Graph & Pattern Matcher (`ProductGraphMatcher`)**:
-   - **Constraint Filtering**: Prunes items exceeding budget caps (`under 100`), matching negative terms (`without Trail`), or marked out of stock.
-   - **Inter-Item Semantic Graph**: Builds a token similarity graph across candidates (Jaccard token affinity + cluster density/centrality + query alignment). Outliers (e.g. phone cases, socks, sponsored junk) receive low centrality scores and are pruned.
-   - **Scoring & Ranking**: Scores valid candidates by query match, rating confidence, price attractiveness, and cluster density.
-3. **Compact Token Output**:
-   - Returns a structured markdown shortlist of top $k$ candidates with preview links, pricing, rating, and pattern highlights.
-   - Groups pruned items into a one-line summary with exact prune reasons.
-   - Consumes ~400–600 tokens total for an entire multi-page search, cutting token overhead by ~95-99%.
-
-### 5.5 Find
-
-`find(query, role?)` searches names, values and text across all frames, including content outside the viewport and past any budget. It returns up to 12 matches as `[ref] role "name"` plus the enclosing landmark, ranked by exact match, then word match, then substring. A match outside the viewport is usable directly: acting on it scrolls it into view.
-
-### 5.6 Deltas
-
-Every `act` returns a delta, never a snapshot:
-
-```
-step 4 ok 3/3 | url unchanged | scroll 0% -> 22%
-~ [e12] textbox "Email" value="a@b.co"
-+ [e31] alert "Enter a valid phone number"
-- [e9]
-text + "2 items in your cart"
-```
-
-- Element lines for added, changed and removed kept nodes.
-- `text +` and `text -` lines for visible text that appeared or disappeared (multiset line diff, capped at 12 lines, then a count).
-- A full skim replaces the delta on navigation, on frame-set change, when more than 40 percent of elements and at least 10 of them changed (a bulk replacement), or when the delta would be longer than the skim. Filling four fields of a small form is not a replacement: the model gets the four `~` lines.
-- If nothing changed, the delta says `no page change observed` so the model does not assume success.
-- A tab opened by the action is reported (`new tab: <title>, now the agent tab`) and followed by its skim.
-- If the settle cap was reached, the header says `page still changing` so the model knows the delta may be incomplete.
-
-### 5.7 Refs
-
-- Format `e1`, `e2`, .... Assigned monotonically per agent tab. Registry key is `(frameOrdinal, backendDOMNodeId)`.
-- Never reused and never re-bound. On a document change the mappings clear and the counter continues.
-- One uniform stale error: `stale [e5]: no longer on the page, nothing was done. Call look or find for current refs.`
-- Refs created by `find` and `look` are as valid as refs from a skim.
+   Found in Step 2 testing: without these exceptions, real memory pressure put a just-opened agent tab to sleep before the agent read it.
+7. **Crash isolation**: on `render-process-gone`, only that tab becomes `crashed`. The SDK call on it rejects with a recoverable error, and the tab shows the crashed page (10.6).
 
 ---
 
-## 6. Action
+## 6. Smart Landing and perception
 
-`act` takes 1 to 8 actions, a declared risk, and a reason.
+### 6.1 Smart Landing (deterministic, no model tokens)
 
-| Op | Behaviour |
-|---|---|
-| `click` | Scroll into view, hit-test the centre point, trusted mouse press and release. A covered target fails with the covering element named. |
-| `fill` | Focus, select all, `Input.insertText`. For `select` elements and ARIA comboboxes, choose the option by visible label. For checkboxes and radios, set to the given state only if it differs. |
-| `key` | Trusted key event on the focused element (`Enter`, `Escape`, `Tab`, arrows, `PageDown`). |
-| `hover` | Trusted mouse move. |
-| `scroll` | By ref (scroll that container) or page, by `up`, `down`, `top`, `bottom`. |
-| `dialog` | Accept or dismiss an open JavaScript dialog. |
-| `upload` | `DOM.setFileInputFiles` on a file input. Step 6. |
+Every navigation runs these steps before returning:
 
-Rules:
+1. **Settle**: main-frame DOM ready, then network quiet or a stable AX structure hash. Target 250 ms after load; hard cap 2.5 s.
+2. **Consent banner** (decision D3, 2026-11-18): the person's **Cookie banners** setting, `cookieBanners` in `~/.aether/config.json`, edited later on the Settings page in Step 4. Only the person can change it.
+   - **What counts as a banner:**
+     - Any banner in view whose buttons use a consent phrase, with cookie or consent text in the same region or within 10 lines. It does not have to cover the page.
+     - A region that holds an input field never counts, so login, paywall and form dialogs are never touched.
+   - **`reject`** (default): click the option that refuses optional cookies ("Reject all", "Only necessary", "Necessary only", "Continue without accepting"). If there is none, the banner is left alone and the agent is told. It never accepts for the person.
+   - **`accept`**: click "Accept all".
+   - **`off`**: never touch a banner. The agent is told its refs.
+   - **Check:** after a click the page is captured again to confirm the banner is gone, with up to two attempts. Otherwise the agent is told it is still showing.
+   - **Notes:** each outcome is one note, such as "closed a cookie banner (rejected optional cookies) in 120 ms". Notes name refs only, never page text.
+   - **Change from 3.0:** 3.0 acted only when more than half the controls were covered. 3.1 follows the setting for any banner in view, because "always reject" is what the person asked for.
+3. **Archetype**: `listing`, `product`, `form`, `article`, `auth_gate`, `captcha`, or `other`. Added to `PageBrief`.
 
-- All input is CDP `Input.*`, so events are trusted. No synthetic DOM events.
-- Each action yields one receipt in the delta header (`3/3`). The batch stops at the first failure, at any navigation, and when a JavaScript dialog opens; remaining actions are reported as not run.
-- Settle after the batch: poll a structural accessibility hash every 150 ms until two samples match, cap 2.5 s, extended while a navigation or a tracked network request started by the action is in flight.
-- A JavaScript dialog is surfaced in the next tool result as `dialog confirm "Leave site?"`; nothing else can run until it is handled.
-- The overlay never intercepts input: it has no pointer events except the status pill, which moves aside when a click targets its area.
+### 6.2 Perception views (kept from 2.0)
 
----
-
-## 7. Tools
-
-Eight tools. Names and schemas are fixed after Step 2 so the host's prompt cache stays valid. `look as` supports `items` (5.4a) and procedural `survey` (5.4b).
-
-| Tool | Arguments | Returns |
+| View | SDK | Budget |
 |---|---|---|
-| `open` | `url`, `new_tab?` | Skim of the loaded page, plus one memory line if procedures exist for the site. |
-| `look` | `ref?`, `as?: "outline" \| "text" \| "items" \| "survey"`, `after?`, `query?`, `max_pages?` | Skim, focused subtree, text, listing items (5.4a), or procedural survey & graph-matching (5.4b). |
-| `find` | `query`, `role?` | Ranked matches with refs. |
-| `act` | `actions[1..8]`, `risk`, `why` | Delta. |
-| `screenshot` | `ref?` | Downscaled PNG with the overlay hidden. For visual widgets only. |
-| `ask` | `question`, `options?`, `handoff?` | The human's answer and a fresh skim. Blocks per 4.3. |
-| `memory` | `op: "recall" \| "save"`, `site?`, `key?`, `value?` | Matching memory, or a save receipt. |
-| `done` | `result`, `evidence`, `success` | Closes the run, records metrics, may save a procedure. |
+| Skim | `space.skim()` | 1,200 tokens |
+| Focus | `space.focus(ref, { after })` | 1,500 |
+| Text | `space.text(ref?, { after })` | 2,000 |
+| Items | `space.items()` (scrolls, segments, adds JSON-LD product facts) | 2,200 |
+| Survey | `space.survey({ query, budget, minRating, maxPages })` (ItemBucket + ProductGraphMatcher) | 400 to 600 |
+| Find | `space.find(query, role?)` | ranked list |
+| Delta | returned by `space.act()` | |
 
-Tool results are plain text, not JSON. Every result that contains page-derived text is wrapped as `<page untrusted nonce=... origin=...>` ... `</page untrusted nonce=...>`, with a random nonce per call so page text cannot forge the closing tag. Engine messages (errors, receipts, state lines, capture warnings) stay outside the wrapper. Budget for all eight tool definitions together: 900 tokens.
-
----
-
-## 8. Policy and safety
-
-The working assumption is that a prompt injection will sometimes succeed. Policy bounds what it can achieve.
-
-1. **Four outcomes**: `allow`, `needs_approval`, `human_must_perform`, `refuse`.
-2. **Checked once**, in the engine, immediately before execution, on the resolved element and its DOM attributes, not on the model's description.
-3. **`human_must_perform`**: typing into password, one-time-code and payment-card fields; CAPTCHAs. The run enters `waiting_human`; the debugger stays attached unless spike S3 shows it interferes with CAPTCHA completion.
-4. **`needs_approval`**: declared `irreversible` risk; a target whose name matches the irreversible trigger list (buy, pay, place order, send, post, publish, delete, submit, confirm, transfer, subscribe) inside a form or dialog; the final submit of any form containing payment or personal-identity fields. The approval card shows the site, the element, the form values about to be submitted with sensitive ones masked, and the model's stated reason labelled as the agent's claim.
-5. **Navigation**: scheme and origin are checked on the parsed final URL, default deny, only `http` and `https`. Redirect targets are re-checked.
-6. **URL provenance**: `open` is allowed without approval when the origin is already in the run's origin set, or the exact URL was observed as a link, or the URL has no query string or fragment. Anything else (a model-built URL carrying data to a new origin) is `needs_approval`. Spike S4 measures the false-positive rate on the task suite before this ships.
-7. **Untrusted wrapper** on all page-derived text, with wrapper-escape and role-token sequences neutralised. This is a signal, not a defence.
-8. **No general script execution tool**, no local file access, no reading of extension or settings pages.
-9. **User interruption**: Take over in the page pill or the side panel moves the run to `waiting_human(user_interrupted)` before the next action; the batch stops and the remaining actions are reported as not run. Interruption is explicit because CDP input is trusted in the page and cannot be told apart from the person's own input. Stop ends the run at the next tool call.
+`ProductGraphMatcher` scoring must be written down in `docs/PERCEPTION.md` before Step 1 ends. 3.0 calls it "Jaccard centrality" without a definition.
 
 ---
 
-## 9. Human in the loop UI
+## 7. Code Mode (`packages/codemode`)
 
-Design language: the page stays the page. Aether draws light on the edge of the viewport and one small pill, nothing else. No gradients, no sparkle icons, no chat bubbles on the page.
+The host writes one short TypeScript program against the `space` SDK, rather than stepping through loops one MCP call at a time.
 
-### 9.1 Edge overlay (content script, agent tabs only)
+### 7.1 Sandbox
 
-- A 2 px line on the inner edge of the viewport with a soft inward falloff of about 28 px, drawn with fixed-position layers in a closed shadow root.
-- `acting`: blue (`#2F6BFF`), opacity breathing between 0.55 and 1.0 over 3.6 s. Animation is on opacity only; no animated `box-shadow`. With reduced motion the line is static.
-- `waiting_human`: amber (`#F5A524`), static, and the tab group title changes to "Aether: needs you".
-- `idle`: no overlay.
-- Status pill, bottom centre: current step as a verb phrase ("Filling the passenger form"), a Stop button, and a "Take over" button. While `waiting_human` it shows the reason and a Resume button.
-- The overlay root is `aria-hidden` and `inert` except the pill, is excluded from capture by its marker attribute, and is hidden for the duration of any screenshot.
-- It removes itself when the service-worker port disconnects or the debugger detaches, so it cannot outlive the run.
+1. **Transpile**: `stripTypeScriptTypes(code, { mode: 'strip' })`. Types become whitespace, so line and column numbers in errors match the host's code.
+2. **Boundary, chosen by S5**:
+   - **Option A**: a `worker_threads` worker running the code in a `vm` context.
+     - Only plain ECMAScript intrinsics, `space` and a capped `console.log`.
+     - Intrinsics are frozen; code generation from strings is disallowed (`codeGeneration: { strings: false, wasm: false }`).
+     - Only structured-clone data crosses the boundary, never host objects.
+   - **Option B**: a hidden `WebContentsView` sandboxed by Chromium.
+     - Settings: `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`, on its own partition.
+     - All network refused by `webRequest`; CSP `default-src 'none'`.
+     - It talks to the main process over a `MessagePort`.
+   - Option A is used only if S5 shows no escape to `process`, `require` or host prototypes, using the known escape classes (constructor chains, `Error.prepareStackTrace`, Proxy traps on passed objects, async-hook leaks). Otherwise Option B.
+3. **Stall watchdog, no wall-clock limit on a working script**:
+   - The run is stopped only when no `space.*` call, settle or hold has happened for 30 s and the event loop is busy.
+   - Stopping means `worker.terminate()`, or destroying the view.
+   - Stop and Take over end or pause the run at once.
+4. **Capability RPC**: each `space.*` call is a message to `CodeModeHost`, which:
+   1. validates with zod;
+   2. runs Policy;
+   3. executes;
+   4. logs a milestone when the call is a milestone;
+   5. returns plain data.
+5. **Errors**: an uncaught error returns `{ error, line, column }` against the host's code, wrapped as untrusted if any page was read.
 
-### 9.2 Side panel
+### 7.2 SDK declaration (shipped in the skill and in the `aether_exec` description, about 700 tokens)
 
-- Header: connection state and the agent tab title.
-- Step list: one line per tool call from the run log, newest first, with the step's token cost.
-- One card at a time for `waiting_human`: a question with option buttons and a free-text field; an approval with Approve and Deny; a must-perform instruction with "I've done it".
-- Memory tab: list, edit and delete stored facts and procedures; a switch to turn memory off.
-- "Let Aether use this tab" and "Stop run".
+```ts
+type Ref = string; // e12
+interface PageBrief {
+  url: string; title: string; tabId: string;
+  archetype: 'listing' | 'product' | 'form' | 'article' | 'auth_gate' | 'captcha' | 'other';
+  landing: string[];            // Smart Landing notes, e.g. 'closed cookie banner'
+  skim: string;                 // untrusted text, refs inline
+  product?: { name?: string; price?: string; availability?: string; rating?: string; seller?: string };
+}
+interface BucketItem {
+  key: string; ref: Ref; title: string; prices: string[]; numericPrice?: number;
+  rating?: string; numericRating?: number; reviews?: string; notes: string[];
+  isSponsored: boolean; isOutOfStock: boolean; linkUrl?: string; sourceUrl: string; pageNumber: number;
+}
+interface SurveyResult {
+  shortlist: Array<{ item: BucketItem; score: number; highlights: string[] }>;
+  pruned: Array<{ key: string; title: string; price?: string; reason: string }>;
+  stats: { pages: number; harvested: number };
+}
+interface FindMatch { ref: Ref; role: string; name: string; context: string }
+interface ActionItem { op: 'click' | 'fill' | 'key' | 'hover' | 'scroll' | 'dialog' | 'upload'; ref?: Ref; value?: string }
+interface ActDelta { ok: number; total: number; stoppedBy?: 'failure' | 'navigation' | 'dialog' | 'person'; delta: string; url: string }
 
-### 9.3 Resume contract
+declare const space: {
+  open(url: string, opts?: { newTab?: boolean }): Promise<PageBrief>;
+  openTabs(urls: string[], opts?: { lazy?: boolean }): Promise<{ tabIds: string[]; live: number; hibernated: number }>;
+  mapPages<T>(urls: string[], fn: (page: PageBrief) => Promise<T> | T): Promise<Array<{ url: string; data?: T; error?: string }>>;
+  switchTab(tabId: string): Promise<PageBrief>;
+  tabs(): Promise<Array<{ id: string; title: string; url: string; state: 'live' | 'hibernated' | 'crashed' }>>;
+  skim(): Promise<PageBrief>;
+  focus(ref: Ref, opts?: { after?: string }): Promise<string>;
+  text(ref?: Ref, opts?: { after?: string }): Promise<string>;
+  items(): Promise<BucketItem[]>;
+  survey(opts: { query: string; budget?: number; minRating?: number; maxPages?: number }): Promise<SurveyResult>;
+  find(query: string, role?: string): Promise<FindMatch[]>;
+  act(actions: ActionItem[], opts: { risk: 'read' | 'reversible' | 'irreversible'; why: string }): Promise<ActDelta>;
+  logStep(milestone: string): Promise<void>;
+  ask(question: string, opts?: { options?: string[]; handoff?: boolean }): Promise<{ reply: string; page: PageBrief }>;
+  memory(op: 'recall' | 'save', params?: { site?: string; key?: string; value?: string }): Promise<string>;
+  /** JSON store for this Space, kept across aether_exec calls; 64 KB. */
+  state: { get<T>(key: string): Promise<T | undefined>; set(key: string, value: unknown): Promise<void> };
+};
+```
 
-After any human action the engine clears refs, re-captures, and returns a fresh skim. The agent never continues from a pre-handoff snapshot and never reclaims control before the human presses Resume, answers, or decides.
+Calls on one Space are serialized. A second `aether_exec` on a busy Space returns `space busy: <current milestone>`. It is not queued silently.
+
+### 7.3 Untrusted data across Code Mode
+
+If a run read any page, its return value and errors are wrapped in `<page untrusted nonce=... origins="...">`. Engine metadata stays outside: timings, tab counts, policy receipts and milestones.
+
+### 7.4 Compact returns
+
+1. Perception views are compact by construction and paged with `after`.
+2. The script's structured return is passed back unchanged. Only a single string over 256 KB, or a total over 1 MB, is rejected, with "return fewer fields".
+3. `openTabs` returns counts and ids, not page skims.
 
 ---
 
-## 10. Memory
+## 8. Host bridge
 
-Stored locally in `~/.aether/aether.db`. Nothing leaves the machine except what a tool result returns to the host.
+### 8.0 Connection: command plus skill first, MCP optional (decided 2026-11-18)
 
-| Kind | Example | Written by | Retrieved by |
+The product is the Aether browser app. Hosts reach it the way ego lite's are reached on this machine:
+- an `aether` command on PATH;
+- one skill folder linked into every host's skills directory.
+
+Nothing has to be configured per host.
+
+1. **Installer** (Step 3; packaging per D1). It installs the app and puts `aether` on PATH. It links one skill folder (`skills/aether`, shipped with the app) into:
+   - `~/.claude/skills/aether`
+   - `~/.agents/skills/aether`
+   - `~/.gemini/config/skills/aether`
+   - `~/.gemini/antigravity-cli/skills/aether`
+   - `~/.config/opencode/skills/aether`
+
+   On Windows these are directory junctions, which need no admin rights. `aether install-skill` repeats this step and `aether uninstall-skill` removes the links. A folder of the same name that is not Aether's link is left alone and reported.
+2. **Skill**. `SKILL.md` is a short bootstrap: run `aether skill`, which prints the usage guide and SDK declaration for the installed version, so an app update updates every host.
+3. **Command**. These are the same four operations as the tools in 8.1, over the daemon:
+
+   | Command | Operation |
+   |---|---|
+   | `aether exec --space <name> --thought <line> --file <script.ts>` (or the script on stdin) | `aether_exec` |
+   | `aether wait <token>` | `aether_exec` with `wait` |
+   | `aether screenshot`, `aether spaces`, `aether done` | the other three |
+
+   Output is the same text the MCP tool returns. A screenshot is written to a file whose path is printed.
+4. **MCP** (`aether mcp`). An optional thin adapter over the same daemon, for hosts with no skills or no shell tool. It is built last in Step 3, and dropped if S10 shows every host the person uses works with the command and skill.
+
+### 8.1 Four operations (as MCP tools: definitions under 450 tokens, excluding the SDK text in the `aether_exec` description)
+
+| Tool | Arguments | Purpose |
+|---|---|---|
+| `aether_exec` | `space?`, `thought`, `code?`, `wait?` | Runs `code` in the named Agent Space, creating the Space if needed, and posts `thought` as a milestone. If the run is held longer than 50 s, it returns `held: <token>, reason`. Calling again with `wait: <token>` and no code keeps waiting and returns the run's result once released. A held run's result is kept for 10 minutes. |
+| `aether_screenshot` | `space`, `ref?` | Downscaled PNG of the active viewport or one element. Overlays are never in it. |
+| `aether_spaces` | `op: 'list' \| 'focus' \| 'close'`, `space?` | List Agent Spaces and tabs, show one in the window, or close one. |
+| `aether_done` | `space`, `result`, `evidence`, `success` | Ends the run, turns the frame off, writes RunLog, may save a procedure. |
+
+### 8.2 The working method, in three places
+
+1. `skills/aether/SKILL.md`, installed by `aether install-skill` to:
+   - `~/.claude/skills/aether/` (Claude Code);
+   - the Antigravity skills folder.
+2. MCP server `instructions`, for VS Code Copilot and other hosts without skills. The 2.0 text in `apps/cli/src/mcp/instructions.ts` is extended for Code Mode.
+3. The `aether_exec` description, which holds the SDK declaration.
+
+The method has six rules:
+- Restate the criteria.
+- Sort and filter first.
+- Use `survey` or `items` across pages.
+- Shortlist at least three and verify each product page with `mapPages`.
+- Ask when options are close.
+- Use `risk: 'irreversible'` before any purchase, booking or submit.
+
+### 8.3 MCP protocol version and extensions (added 2026-11-18)
+
+Code Mode is an integration pattern, not an MCP feature. Cloudflare and Anthropic both describe it as a typed API run in a sandbox behind one or two tools. Aether's `aether_exec` follows that pattern. The protocol under it changed on 2026-07-28, and that revision affects four parts of this plan.
+
+**The 2026-07-28 revision**:
+- It is stateless: no `initialize` handshake and no sessions. Version and client capabilities travel in every request's `_meta`.
+- Servers must implement `server/discover`. Its result carries `instructions`.
+- Server-to-client requests (elicitation, sampling) are replaced by Multi Round-Trip Requests: a tool returns `resultType: "input_required"` with `inputRequests` and an opaque `requestState`, and the client retries with `inputResponses`.
+- Tasks moved to an official extension, `io.modelcontextprotocol/tasks`. A call returns a task handle; the client polls `tasks/get` and supplies input with `tasks/update`.
+- Sampling, roots and logging are deprecated.
+
+**Where the hosts and SDK are (checked 2026-11-18)**:
+- `@modelcontextprotocol/sdk` 1.32.2, the latest on npm and the version installed, speaks `2025-11-25` (handshake era).
+- The official client matrix does not show which hosts support Tasks or Skills over MCP. Host support is therefore unknown until S10 measures it.
+
+**Decisions**:
+1. **Dual-era server.**
+   - The daemon's MCP surface answers both the legacy `initialize` handshake (today's hosts) and modern per-request `_meta` with `server/discover`.
+   - The method text is served in both places: `initialize.instructions` and `DiscoverResult.instructions`.
+   - Modern-era support waits for an SDK release that implements it. No hand-written protocol layer is built.
+2. **Held runs.**
+   - If the client declares `io.modelcontextprotocol/tasks`, a run that holds longer than 50 s returns a task. Polling `tasks/get` then replaces the `wait` token, and `tasks/cancel` maps to Stop.
+   - Otherwise the `wait` token in 8.1 is used. Both paths read the same held-run record.
+3. **No approvals through MRTR elicitation.**
+   - Approvals, secrets and Take over stay in Aether (rule 9). An elicitation is shown by the host, can be answered by the host on the person's behalf, and cannot show the page beside the card.
+   - Only `space.ask` questions may also be offered as a form elicitation, and only if the client declares support. The first answer from either Aether or the host wins, and the other card is withdrawn.
+4. **Skill delivery.**
+   - When a host declares `io.modelcontextprotocol/skills`, the server serves `skill://aether/SKILL.md` through `skills/list`, `skills/get` and `resources/read`, with a SHA-256 manifest.
+   - Hosts without it use the installed file or the server instructions (8.2).
+   - One source file feeds all three.
+
+**Tool definitions**:
+- `tools/list` is returned in a fixed order, so host prompt caches stay valid.
+- `aether_exec` declares an `outputSchema`. The result keeps its text block (wrapped untrusted text) and adds `structuredContent` for engine metadata only: milestones, timings, tab counts, held state. Page-derived data never goes in `structuredContent`, because hosts may show or forward it without the untrusted wrapper.
+
+**Why not Cloudflare's "search plus execute" pair**: Cloudflare adds a search tool because its API spans thousands of operations. Aether's whole SDK declaration is about 700 tokens, so it ships inline in the `aether_exec` description. A search tool would cost an extra turn to save nothing.
+
+---
+
+## 9. Policy and safety
+
+The working assumption: prompt injection will sometimes steer the host model. Policy in the main process bounds what any script can do.
+
+1. **Four outcomes** on every `space.act`, `space.open`, `openTabs` and `mapPages`: `allow`, `needs_approval`, `human_must_perform`, `refuse`. They are evaluated on the resolved node and parsed URL in the main process.
+2. **`human_must_perform`**: typing into password, OTP or card fields, and CAPTCHAs.
+3. **`needs_approval`**:
+   - declared `irreversible` risk;
+   - trigger words on activating controls (buy, pay, place order, send, post, publish, delete, submit, confirm, transfer, subscribe);
+   - submits carrying identity or payment fields;
+   - uploads from outside `~/.aether/spaces/<id>/downloads`.
+4. **URL provenance** (`classifyOpen`) on every URL a script passes. A URL is allowed when any one of these holds:
+   - the origin was already visited in the run;
+   - the exact URL appeared as a link `href` on a page in the run;
+   - the URL goes to a new origin with no query or fragment.
+
+   Otherwise it is held. URLs held in one call are approved or denied together on one card.
+5. **Refused schemes**: `file:`, `chrome:`, `devtools:`, `javascript:`, `data:`, and external protocols (`mailto:`, app links) for agents.
+6. **Take over**:
+   - Pressing Take over, or Esc while the shield is up, sets `user_interrupted` at once.
+   - Remaining actions in the current batch are aborted, and the script pauses before its next SDK call.
+   - The shield is removed, the frame turns amber, and the person uses the page.
+   - "Hand back to Aether" resumes the run.
+7. **Electron hardening**:
+   - All views use `contextIsolation`, `sandbox: true` and `nodeIntegration: false`. The shell preload exposes only typed IPC.
+   - The shell has a strict CSP.
+   - `setWindowOpenHandler` opens popups as tabs in the same Space. Exception: OAuth popups that need `window.opener` open as a child window.
+   - `will-navigate` checks apply to the shell view.
+   - The permission request handler denies camera, microphone, location, notifications, MIDI and clipboard read in Agent Spaces. In the Human Space it asks the person.
+   - `webContents.debugger` is never attached to Human Space tabs.
+
+---
+
+## 10. Shell UI (`apps/desktop/renderer`)
+
+Principle: it should look and behave like a quiet Chrome. Agent work shows in exactly three places: the frame, the Agent bar and the side panel. There are no chat threads, code blocks or model settings.
+
+### 10.1 Design tokens (`apps/desktop/renderer/tokens.css`)
+
+Ratios are measured against `--surface` (`scripts/check-contrast.mts` in Step 4 recomputes them). All colours, sizes and durations come from these tokens. Hard-coded values in component CSS fail lint review.
+
+**Colour, light theme / dark theme**
+
+| Token | Light | Dark | Use |
 |---|---|---|---|
-| Profile fact | `seat preference = aisle`, `home airport = AMD` | The user in the side panel, or `memory save` after an approval card | `memory recall`, by key or keyword |
-| Site procedure | `irctc.co.in / search trains`: ordered steps as text with roles and names, not refs | The engine on `done success=true`, from its own action log | One line appended to `open` when procedures exist for the origin; full text via `memory recall` |
-| Site note | `this site's date picker needs typed dd/mm/yyyy` | `memory save` with `site` set | Same as procedures |
+| `--frame` | `#E8EBEF` | `#1B1C1F` | Window and tab strip background |
+| `--surface` | `#FFFFFF` | `#28292D` | Active tab, toolbar, side panel |
+| `--field` | `#F1F3F5` | `#323438` | Omnibox and inputs at rest |
+| `--hover` | `#00000012` | `#FFFFFF14` | Hover fill |
+| `--border` | `#D5D9DE` | `#3B3D42` | Dividers |
+| `--text` | `#1B1D21` | `#E8EAED` | Primary text (16.9:1 / 12.1:1) |
+| `--text-muted` | `#5B616B` | `#A2A7B0` | Secondary text (6.2:1 / 6.0:1) |
+| `--focus` | `#2558D6` | `#7AA2FF` | Focus ring |
+| `--agent` | `#2F6BFF` | `#2F6BFF` | Acting frame and chip (UI only, 4.5:1 / 3.2:1) |
+| `--agent-text` | `#2558D6` | `#7AA2FF` | Acting text (6.1:1 / 5.8:1) |
+| `--wait` | `#B76E00` | `#F5A524` | Waiting frame and chip (4.0:1 / 7.1:1) |
+| `--wait-text` | `#9A5B00` | `#F5A524` | Waiting text (5.4:1 / 7.1:1) |
+| `--danger` | `#C5221F` | `#F28B82` | Stop and errors |
 
-Rules:
+The 3.0 amber `#F5A524` is kept for the dark theme only. On white it measures 2.0:1, below the 3:1 required for UI components (WCAG 1.4.11).
 
-- Credentials, card numbers, one-time codes and anything matching the sensitive pattern are never stored. The save is refused.
-- Procedures are built from engine-recorded actions and element names the engine observed, with names passed through the sanitizer. Free page text is never written to memory.
-- A procedure records success and failure counts; after two consecutive failures it is marked stale and no longer advertised.
-- Recall results are capped at 300 tokens and wrapped as untrusted when they contain site-derived names.
-- Memory can be turned off; then `memory` returns an empty result and nothing is written.
+**Type**: system font stack (`Segoe UI Variable`, `-apple-system`, `system-ui`). Sizes: 12 (tab titles, meta), 13 (UI default), 14 (omnibox, card body), 16 (card title). Weights: 400 and 600 only. Line height 1.35.
 
-Procedures replace the unused replay cache from version 1.0: the model still decides each step, but starts from a known route instead of exploring.
+**Space and size**:
+- Spacing scale: 4 px (2, 4, 8, 12, 16, 24).
+- Row heights: tab strip 36, toolbar 40, Agent bar 32.
+- Side panel width: 320, resizable from 280 to 480.
+- Hit targets at least 28 × 28 (WCAG 2.2 2.5.8 requires 24).
+
+**Shape**: radius 8 for tab tops, 6 for controls, 999 for the omnibox and chips. One elevation shadow, used for popovers only.
+
+**Motion**:
+- UI transitions: 120 ms ease-out.
+- Acting pulse: opacity of the frame cycles 0.55 to 1 over 2.4 s.
+- Under `prefers-reduced-motion`, the frame is static.
+- No other animation.
+
+### 10.2 Layout
+
+```
++--------------------------------------------------------------------------------+
+| [● Personal v] | Tab A x | Tab B x | +                              _  []  x   |  tab strip 36
+| <  >  C   ( example.com/path                                 )  ◐2  ▣  :       |  toolbar 40
+| ●  Comparing 12 listings · 0:42 · 3 open · 9 sleeping      Take over   Stop    |  Agent bar 32 (Agent Spaces only)
+| +----------------------------------------------------------+ +---------------+ |
+| |                                                          | | Activity      | |
+| |   page (WebContentsView), 2 px frame in Agent Spaces     | | ✓ Opened ...  | |
+| |                                                          | | ● Comparing.. | |
+| |                                                          | |  [decision]   | |
+| +----------------------------------------------------------+ +---------------+ |
++--------------------------------------------------------------------------------+
+```
+
+- **Space switcher chip** (left of the tabs):
+  - Shows the current Space name and a status dot.
+  - The menu lists Personal, then Agent Spaces with state, then "Archived".
+  - Ctrl+Shift+1..9 switches Space.
+- **Tab strip**: Chrome-like horizontal tabs.
+  - Agent tabs carry no extra chrome. The Space is the boundary, not the tab.
+  - A sleeping tab shows its favicon at 50 % opacity, with the tooltip "Sleeping to save memory. Click to load."
+- **Toolbar**:
+  - back, forward, reload;
+  - omnibox (shows the host only when not focused, the full URL on focus);
+  - agent indicator `◐2`: the number of running Agent Spaces, amber if any is waiting; the click opens the switcher;
+  - side panel toggle;
+  - main menu.
+- **Agent bar**: shown only in Agent Spaces. Contents:
+  - status dot;
+  - the current milestone;
+  - elapsed time;
+  - tab counts in plain words;
+  - Take over and Stop.
+
+  While waiting it reads "Aether needs you: <short reason>" and its button opens the decision card.
+- **Side panel**:
+  - Tabs: Activity and Memory.
+  - It opens by itself when a decision is needed, and closes on Ctrl+\\.
+  - Activity holds the milestone timeline (check for done, dot for current, duration on the right) and the decision card on top while waiting.
+
+Windows uses `titleBarOverlay` so the tab strip runs under the system caption buttons. On macOS the traffic lights sit at the left of the tab strip.
+
+### 10.3 Components and states
+
+| Component | States | Notes |
+|---|---|---|
+| Tab | active, inactive, hover, loading (spinner in favicon slot), sleeping, crashed (warning icon), audible (speaker, click to mute) | Middle click closes. Drag reorders within a Space. |
+| Space chip | personal, acting (pulsing blue dot), waiting (amber dot), done (grey dot) | The dot is never the only signal: the menu row also states the state in words. |
+| Omnibox | rest, focused, suggestions open (in the Shell Overlay view), error | Suggestions draw on history, bookmarks and the search engine. |
+| Agent bar | acting, waiting, done (fades out after 4 s, leaving "Done · result" in Activity) | `role="status"`, `aria-live="polite"`; waiting uses `aria-live="assertive"` once. |
+| Decision card | question (options or free text), approval, your turn, you have control, captcha | Exactly one primary button. |
+| Approval card | site, element (shown quoted as page text), values with secrets masked, the agent's stated reason labelled "Aether says" | Buttons are fixed copy: "Approve" and "Deny". Labels are never built from page text, because a page could name its button "Cancel". |
+| Milestone row | running, done, held, failed | One line, ellipsis, full text in tooltip. |
+| Shield | shown while acting and visible | Hint in the bottom centre. Click anywhere shows the hint again; the page receives nothing. |
+| Ghost cursor | moving, target bracket | 200 ms glide; static under reduced motion. |
+
+### 10.4 Copy
+
+Rules: verbs on buttons, plain words, the same term for the same thing everywhere. "Sleeping" replaces "hibernated" and "virtual" in the UI; "Space" stays.
+
+| Place | Copy |
+|---|---|
+| Agent bar, acting | `<milestone> · 0:42 · 3 open · 9 sleeping` |
+| Agent bar, waiting | `Aether needs you: <reason>` + button `Review` |
+| Take over / Stop | `Take over` / `Stop task` |
+| Person has control | Card title `You have control`, body `Aether is paused. Use the page, then hand it back.`, button `Hand back to Aether` |
+| Your turn (password, OTP) | Title `Your turn`, body `<handoff text from the agent, quoted>`, button `I'm done` |
+| CAPTCHA | Title `Solve the check on this page`, button `I'm done` |
+| Approval | Title `Approve this step on <site>?`, buttons `Approve` / `Deny` |
+| URL approval | Title `Open <n> new sites?`, list of full URLs, buttons `Open all` / `Deny` |
+| Shield hint | `Aether is working. Press Take over or Esc to use this page.` |
+| Activity empty | `No agent tasks yet. Ask your editor to use /aether and progress shows here.` |
+| Network error page | `This site can't be reached. <host> took too long to respond. Check the address, then try again.` + `Try again` |
+| Crashed tab | `This tab stopped working. The page ran out of memory or hit an error.` + `Reload` |
+| Done | `Done · <result, first line>` |
+| Stopped | `Stopped by you` |
+
+### 10.5 Accessibility (WCAG 2.2 AA)
+
+- **Contrast**: all text pairs in 10.1 are at least 4.5:1, and UI component colours at least 3:1, in both themes. CI checks the token table with a small script (`scripts/check-contrast.mts`).
+- **Not colour alone**: every state carries text (Agent bar, menu rows, card titles).
+- **Keyboard**: every control is reachable with a visible 2 px `--focus` ring. Chrome-parity shortcuts:
+
+| Keys | Action |
+|---|---|
+| Ctrl+T | New tab |
+| Ctrl+W | Close tab |
+| Ctrl+Shift+T | Reopen closed tab |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
+| Ctrl+1..9 | Go to tab 1 to 9 |
+| Ctrl+L, Alt+D, F6 | Focus the omnibox |
+| Alt+Left / Alt+Right | Back / forward |
+| Ctrl+R, F5 | Reload |
+| Ctrl+F | Find in page |
+| Ctrl+Plus / Ctrl+Minus / Ctrl+0 | Zoom in / out / reset |
+| Ctrl+H | History |
+| Ctrl+J | Downloads |
+| Ctrl+D | Bookmark the page |
+| F12 | DevTools |
+| Ctrl+\\ | Side panel |
+| Ctrl+Shift+1..9 | Switch Space |
+| Esc (while the shield is up) | Take over |
+
+- **Roles**:
+  - The tab strip is a `tablist` of `tab`s.
+  - The omnibox is a `combobox` with a `listbox`.
+  - The side panel is a `complementary` landmark.
+  - The decision card is a `dialog` that does not trap focus, and moves focus to its primary button when it appears.
+- **Motion**: `prefers-reduced-motion` turns off the pulse and the ghost-cursor glide.
+- **Zoom**: the shell works at 200 % shell zoom without horizontal scrolling at 1280 px window width.
+- **Exit check** for Step 4: a keyboard-only run and an NVDA (Windows screen reader) pass over the decision card flow, recorded in `docs/A11Y.md`.
+
+### 10.6 Browser basics (Electron hook)
+
+| Feature | Hook |
+|---|---|
+| Error pages | `did-fail-load`, which loads `aether://error` |
+| Crashed tab | `render-process-gone` |
+| Find in page | `webContents.findInPage`; the bar sits in the Shell Overlay view |
+| Context menu | `context-menu` event and a native `Menu`, including "Send tab to Agent Space" |
+| Downloads | `session.on('will-download')`, toolbar popover; Agent Spaces save to the Space folder |
+| Permissions | `setPermissionRequestHandler`; the Human Space shows a bubble under the omnibox |
+| HTTP auth | `app.on('login')`, a shell dialog; agents get `human_must_perform` |
+| Certificate errors | `certificate-error`, an interstitial; agents get `refuse` |
+| External protocols | `setWindowOpenHandler` and `will-navigate`, which ask before `shell.openExternal` in the Human Space and refuse in Agent Spaces |
+| Fullscreen video | `enter-html-full-screen`; the tab view fills the window |
+| PDF | Electron's built-in viewer (`plugins: true`) |
+| Zoom, print | `setZoomLevel` per site; `webContents.print` |
+| New tab page | `aether://newtab`: focused omnibox and recent Spaces only |
+| History and bookmarks | `aether://history`, a bookmarks bar toggle (Ctrl+Shift+B) |
+
+Not in 3.1: Chrome extensions, password manager integration, sync, DRM video (Widevine). Each is stated on the About page so nobody assumes otherwise.
 
 ---
 
-## 11. Measurement
+## 11. Chrome import, memory, storage
 
-The 80 percent target is a claim about tokens per successful task, not about snapshot size.
+### 11.1 Chrome import (subject to S6)
 
-- **Baselines**, same model, same host, same step cap, pinned versions: Playwright MCP in default (incremental) mode, Playwright MCP in `full` snapshot mode, and browser-use. Reported separately.
-- **Suite**: the 20 tasks in `docs/METRICS.md`, extended in Step 8 with a live-site subset covering search, research, booking and registration up to the final submit, and purchase up to checkout. Three runs per task.
-- **Recorded per run** in the run log: success (state check on fixtures, fixed judge with human spot checks on live sites), tool-result tokens by tool, tool-definition tokens, input, cached-input and output tokens when the host exposes them, steps, human interventions, wall time.
-- **Headline**: total tokens across all attempts divided by successful tasks, with the success-rate difference and its confidence interval. The 80 percent figure is stated only if success is not significantly lower than the baseline. Results are also split by task category, because filter, sort and table tasks are where a compact observation is most likely to cost success.
-- **Per-step budgets** (targets, checked in tests on fixtures): skim 1,200 tokens, typical delta 150, `find` result 200, tool definitions 900.
+1. Copy only `Cookies` and `History` to a temp folder, read `Bookmarks` JSON directly, and delete the copies in `finally`.
+2. Decrypt cookies where the OS allows:
+   - Linux: libsecret or the default key.
+   - macOS: Keychain, which prompts the person.
+   - Windows: v10 cookies via DPAPI. v20 cookies (App-Bound, Chrome 127+) are expected to be undecryptable, and S6 confirms this.
+   - Cookies that cannot be decrypted are skipped, and the import reports how many.
+3. Set a current Chrome user agent and `Sec-CH-UA` hints on `persist:aether`.
+4. Where import or embedded sign-in fails (R8, R9), the documented path is:
+   1. Sign in once in the Human Space of Aether.
+   2. The session persists in `persist:aether`, which Agent Spaces share.
+
+### 11.2 Persistence
+
+`aether.db` holds:
+- `spaces` and `tabs` as metadata only (about 300 bytes per tab). On launch, only the active Human tab mounts; everything else restores as sleeping.
+- `facts`, `notes`, `procedures`, `runs` and `run_steps` from 2.0, unchanged. Secrets are refused.
+- `space_state`: the JSON store behind `space.state`.
+
+### 11.3 Storage hygiene
+
+1. The HTTP cache uses Chromium's own sizing unless `config.json` sets a limit.
+2. Deleting an Agent Space clears `serviceworkers`, `cachestorage` and `shadercache` for origins used only by that Space. Cookies and local storage are kept.
+3. Downloads go to `~/.aether/spaces/<id>/downloads`.
+   - A download starts only if free disk (`fs.statfs`) stays above 1 GB after it.
+   - The folder is removed only when the person deletes the Space, with a confirmation if it holds files.
+4. `aether.db` uses `auto_vacuum = INCREMENTAL`. `aether.log` rotates at start and at 10 MB (configurable).
 
 ---
 
-## 12. What changes from the 1.0 code
+## 12. Measurement
+
+Baselines: Aether 2.0 (8 tools), Playwright MCP, browser-use where it runs. All use the same host model and the same tasks.
+
+Recorded in `docs/METRICS.md`:
+- Model turns per task. Target: 3 or fewer for multi-page search plus a 10-tab fan-out (2.0: 11 to 15).
+- Wall-clock time. Target: at least 5x faster than 2.0 on multi-tab and listing tasks.
+- Host plus result tokens per successful task. Target: at least 80 % fewer than full-snapshot agents.
+- Peak renderer memory, and concurrency over a 20-tab run, at normal and simulated low memory.
+- Task success, and whether the chosen product meets every stated criterion. This guards against speed bought with worse choices.
+
+---
+
+## 13. What changes from the 2.0 code
 
 | Area | Decision |
 |---|---|
-| `packages/cdp` client, sessions, launcher | Keep. Add a public way to get a session by id (removes the private-field casts). |
-| `packages/perceiver` registry, extractor | Keep and extend (tables, masking, boxes). |
-| Serializer, collapser, delta | Rewrite for skim, focus, text and text-line deltas. |
-| `packages/actor` | Rewrite input around the op table in section 6; remove the shared static mouse position and the ref re-query fallback. |
-| `ReplayCache`, `HistoryCompactor`, viewport stub, `classifyBatch`, pick mode | Delete. No callers; replaced by procedures (10) and by the host's own history. |
-| `packages/policy` | Keep the URL boundary and sanitizer; rewrite the classifier per section 8; one check per action. |
-| MCP server | Rewrite for the eight tools and the run state machine. |
-| Bridge and native host | Rewrite per 4.2. The framing code is kept for the bootstrap channel. The relay's reconnect loop is removed: the extension now opens and reconnects the socket itself, and the native host only reports the port and token. |
-| Extension | Rewrite: service worker with tab group and state fan-out, overlay content script, side panel with working cards. |
-| New packages | `packages/memory`, `packages/runlog`. |
-| Fixtures and tests | Keep; add fixtures for tables, a covered element, a JavaScript dialog, a multi-step form, and a long scrolling page. |
+| `packages/cdp` | Keep. Add `ElectronDebuggerTransport` (`attach('1.3')`, `sendCommand`, `message`, `detach`). Keep the headless launcher. |
+| `packages/perceiver` | Keep. Add `smart-landing.ts` (settle, consent, archetype) and `FORM` tag landmark mapping. Document `ProductGraphMatcher`. |
+| `packages/actor` | Keep. Add an `onActionTarget(point)` callback for the ghost cursor. |
+| `packages/policy` | Keep. Add `blocklist.ts`, batch URL approval, and the external protocol rule. |
+| `packages/memory` | Keep. Add `spaces`, `tabs` and `space_state` tables; driver per D2. |
+| `packages/shared` | Extend. Zod schemas for Spaces, tab records, milestones, daemon frames, Code Mode RPC, the 4 tools, shell IPC. |
+| `packages/codemode` | New. Transpiler, sandbox per S5, stall watchdog, RPC host and client, return guard. |
+| `apps/desktop` | New. `main/` (SpaceManager, TabLifecycle, MemoryWatchdog, ChromeImporter, daemon), `preload/`, `renderer/` (shell UI), `overlay/` (Shell Overlay view). |
+| `apps/cli` | `aether mcp` forwards to the daemon; `--direct --headless` keeps the 2.0 engine for CI; `aether doctor` checks Electron, the daemon and the skill install; `aether install-skill`. |
+| `skills/aether` | New. `SKILL.md`. |
+| `apps/extension`, `apps/native-host` | Delete in Step 6, after `apps/desktop` passes every end-to-end task. |
 
 ---
 
-## 13. Steps
+## 14. Steps and spikes
 
-Work one task at a time, in order. After each task run `pnpm typecheck`, `pnpm lint`, `pnpm test`. A step's exit gate must pass before the next step starts.
-
-**Step 0. Clear the ground.** Delete the code listed for deletion in section 12 and its tests. Add the public session lookup. Exit: checks pass; no file references a deleted module.
-
-**Step 1. Perception.** Capture with boxes (after S2), masking, tables, skim, focus, text, find ranking, element and text deltas, budgets. Exit: fixture tests for each level and each budget; refs stable across repeats and never reused; `probe` prints a skim and its token count for the five fixtures and five real sites, recorded in `docs/probe-results.md`.
-
-**Step 2. Action and tools.** Op table, receipts, batch stop rules, dialog handling, settle. MCP server with the eight tools over direct CDP. Exit: an MCP client completes the four fixture tasks in `docs/METRICS.md` through stdio; tool definitions fit the 900 token budget.
-
-**Step 3. Run state and policy.** State machine, held calls, classifier, approvals, provenance (after S4), interruption. Exit: tests drive every transition with a fake human channel; password, payment and irreversible fixtures produce the right outcome exactly once per action.
-
-**Step 4. Transport.** Spike S1, then the loopback socket, bootstrap native host, auth frame, keepalive, detach propagation. Exit: bridge tests pass with a 5 MiB CDP response; lost-reply and detach cases covered.
-
-**Step 5. Extension.** Service worker, tab group, overlay, side panel cards wired to the state machine. Exit: on the real profile a run shows the blue edge, a question pauses to amber and resumes with a fresh skim, Stop ends the run and removes the overlay; overlay absent from screenshots and from the accessibility capture.
-
-**Step 6. Memory and run log.** SQLite schema, facts, procedures, notes, side panel memory tab, pino logging, upload op. Exit: a repeated fixture task uses a stored procedure and takes fewer steps; sensitive saves are refused. If Step 7 shows procedures do not reduce tokens per successful task, they are removed in Step 8 and only profile facts remain.
-
-**Step 7. Measurement.** Baseline harness and the comparison in section 11. Exit: results committed to `docs/METRICS.md` with the headline figure and per-category split, whatever the number is.
-
-**Step 8. Tune or cut.** Each optimization is switched off in turn; any that does not reduce tokens per successful task is deleted.
+Work one step at a time, in order. After each, run `pnpm typecheck`, `pnpm lint` and `pnpm test`, and do not start the next step until all pass. Record each spike in `docs/SPIKES.md`.
 
 ### Spikes
 
-Each spike is a small isolated script under `scripts/spikes/` and its result is reported before the dependent work starts.
-
 | Id | Question | Blocks |
 |---|---|---|
-| S1 | Does a service-worker WebSocket to loopback survive a 10 minute run, and what closes it? | Step 4 |
-| S2 | Latency of `DOMSnapshot.captureSnapshot` joined to the accessibility tree versus batched `DOM.getBoxModel`, on the real-site set | Step 1 capture. Done 2026-11-11: snapshot chosen, see `docs/SPIKES.md` |
-| S3 | Does an attached debugger stop a human from passing common CAPTCHAs? | Step 3 `captcha` handling |
-| S4 | False-positive rate of the URL provenance rule on the task suite | Step 3 provenance |
+| S5 | Sandbox. Does worker plus `vm` (with `codeGeneration` off and frozen intrinsics) resist the known escape classes? Same question for a sandboxed hidden renderer. Also: does `worker.terminate()` stop `while (true) {}`, and does a `space.*` round trip take under 10 ms in each? | Step 1 |
+| S6 | Chrome import. Cookie decryption on Windows (v10 vs v20 App-Bound), macOS and Linux. Bookmarks and history. Google and one bank: does sign-in work inside Electron with the Chrome user agent? | Step 5 |
+| S7 | Electron CDP and views. Does `webContents.debugger` auto-attach to cross-origin iframes like Chrome? Do lazy loading and `IntersectionObserver` fire in a view that is not shown, with `backgroundThrottling: false` and real bounds? Memory freed when a view is destroyed, and per-page memory for the concurrency formula. | Step 2 |
+| S8 | Shell Overlay view. Does a transparent view block the person's mouse and keys over a tab while engine CDP input still reaches the page? Is it absent from `capturePage`? Is input passed through at once when the view is removed? Can omnibox suggestions render in it without focus loss? | Step 2 |
+| S9 | SQLite in Electron. `node:sqlite` in Electron's Node: does the API cover the 2.0 memory store, and what does performance look like? Versus `better-sqlite3` rebuilt with `@electron/rebuild`. Feeds decision D2. | Step 2 |
+| S10 | Host protocol support. For VS Code Copilot, Claude Code, Cursor and Antigravity, record: the protocol era each sends; whether it reads server `instructions`; whether it declares the Tasks, Skills or elicitation capabilities; and how long it waits on a tool call before timing out. Method: log the raw requests the 2.0 server receives. | Step 3 |
+
+### Steps
+
+**Step 0. Baseline and v3 schemas.**
+- Move the plan into `docs/PLAN.md` (this file). Archive 2.0.
+- Add `FORM` tag landmark mapping in the perceiver, with a fixture that has an unnamed `<form>`.
+- Zod schemas in `packages/shared` for: Spaces, tab records, milestones, Code Mode RPC, the 4 tools, daemon frames, shell IPC.
+- Exit: all checks pass; the schemas have round-trip tests.
+
+**Step 1. Code Mode and Smart Landing on the current engine.**
+- Run S5 and record the decision.
+- Build `packages/codemode`:
+  - transpile;
+  - sandbox;
+  - stall watchdog;
+  - cancel on Take over and Stop;
+  - return guard;
+  - untrusted wrapping;
+  - `space.*` over an adapter for the 2.0 `BrowserSession`.
+- Add Smart Landing and the archetype tagger, tested on new fixtures: a consent banner with reject and accept, a consent banner with accept only, a login dialog (must not be dismissed).
+- Expose `aether_exec` and `aether_done` on the existing MCP server behind `aether mcp --codemode`. The person can then try Code Mode from VS Code with the 2.0 extension before any Electron work.
+- Exit:
+  - Security tests show the escape attempts fail.
+  - `while (true) {}` is stopped and a 2-minute active script is not.
+  - Structured returns arrive whole.
+  - A script cannot exfiltrate through `open`.
+  - One `aether_exec` harvests the 2-page fixture shop, filters, maps 3 product pages, and returns a shortlist.
+
+**Step 2. Electron core.**
+- Run S7, S8 and S9. Decide D2.
+- Add `ElectronDebuggerTransport`.
+- Build `apps/desktop/main`:
+  - BaseWindow with the three layers;
+  - SpaceManager;
+  - TabLifecycle (live views, sleeping tabs, `mapPages` pool, request filter, MemoryWatchdog, crash isolation);
+  - `config.json`;
+  - SQLite Space and tab tables;
+  - log rotation;
+  - Electron hardening (9.7).
+- Add a test driver: Electron launched with a test flag exposes the daemon socket and `--remote-debugging-port` for the shell.
+- Exit:
+  - 15 tabs via `openTabs` leave unviewed tabs sleeping with metadata in SQLite.
+  - Concurrency rises with free memory and drops under simulated pressure.
+  - Deleting a Space keeps cookies and clears caches.
+  - Killing one renderer leaves the app and the Space running.
+
+**Step 3. Daemon, command, skill and installer.** (Before UI polish, so a real host drives Electron from here on.)
+- The daemon in `apps/desktop` (named pipe or socket plus token), with concurrent sessions.
+- The `aether` command (`exec`, `wait`, `screenshot`, `spaces`, `done`, `skill`, `install-skill`, `uninstall-skill`, `doctor`). It auto-launches the app.
+- The skill links for all hosts (8.0) and the installer (D1).
+- Last, and only if S10 needs it: `aether mcp` forwarding the same 4 operations.
+- `skills/aether/SKILL.md` and the MCP instructions, under 1,500 characters.
+- Run S10. Use the Tasks extension and Skills over MCP for hosts that declare them, and the `wait` token and installed skill otherwise (8.3).
+- Exit:
+  - Two concurrent clients get two Agent Spaces in one app with no conflicts.
+  - VS Code Copilot and Claude Code both complete the fixture shop task through `aether_exec`.
+
+**Step 4. Shell UI.**
+- `tokens.css` per 10.1 and the contrast check script.
+- Build the layout in 10.2:
+  - tab strip, Space switcher, toolbar and omnibox, Agent bar, side panel (Activity, Memory), decision and approval cards;
+  - in the Shell Overlay view: the shield, ghost cursor, omnibox suggestions and find bar;
+  - the browser basics in 10.6.
+- Copy exactly per 10.4. No chat box and no code block anywhere.
+- Exit:
+  1. An end-to-end test shows the Human Space untouched while an Agent Space runs blue.
+  2. Person clicks in the Agent Space are blocked while acting.
+  3. Milestones appear in Activity.
+  4. An irreversible fixture turns the Space amber with an approval card.
+  5. Take over and "Hand back to Aether" work.
+  6. The keyboard and NVDA checks in 10.5 are recorded.
+
+**Step 5. Chrome import and Space downloads.**
+- Run S6.
+- Build `ChromeImporter`: bookmarks, history, decryptable cookies, temp copies removed in `finally`, and a report of what was skipped. Set the user agent and client hints.
+- Space download folders with the free-disk check, removed only when the Space is deleted.
+- Exit:
+  - Importing a fixture profile fills bookmarks and cookies and leaves no temp files.
+  - Deleting a Space removes its folder after confirmation.
+
+**Step 6. Retire 2.0 and record v3 metrics.**
+- Delete `apps/extension` and `apps/native-host`. Update `README.md` and `docs/SETUP.md`.
+- Run the benchmarks: multi-page shopping, 10-tab fan-out, form, handoff. Record the section 12 metrics.
+- Exit: all checks pass; metrics committed.
 
 ---
 
-## 14. Research basis
+## 15. Research basis
 
-Findings that shaped this plan. Sources are in the research reports from 2026-11-11.
+- **Cloudflare Code Mode (2025)**: a typed API run in a sandbox beats long tool lists, in tokens and in speed, because models write TypeScript better than they sequence single tool calls.
+- **ego (lite), CitroLabs**: separate person and agent workspaces sharing one signed-in session, a blue glow while acting, explicit handoff, and single-shot script execution.
+- **Chromium Memory Saver and Arc Spaces**: retail pages run 50 to 130 subframes and 300 to 500 MB per renderer. Separating tab records from live views prevents out-of-memory failures under fan-out.
+- **Node `vm` documentation**: "The node:vm module is not a security mechanism." Hence S5 and the sandboxed renderer option.
+- **Chrome App-Bound Encryption (Chrome 127, 2024)**: cookies on Windows are bound to Chrome's identity. Hence the S6 scope and the sign-in fallback.
+- **Agent shopping evaluations (WebMall, Online-Mind2Web, DeepShop, AgentOccam)**: agents stop at the first offer and skip filters. Hence `items`, `survey` and the method in 8.2.
+- **Aether 2.0 findings (2026-11-11 to 2026-11-17)**: these motivated 3.0:
+  - DOMSnapshot plus AX skim cost (S2);
+  - item and survey harvesting (S4b);
+  - URL provenance (S4);
+  - three failure modes:
+    - minutes of sequential tool calls on 10-tab tasks;
+    - arrivals on pages covered by cookie banners;
+    - stdio bridge collisions between MCP processes.
 
-- **Shared pattern** across Comet, Claude for Chrome, ego lite and others: a remote model, a small tool set, a local executor with input-level control of a real logged-in tab, an accessibility tree filtered to interactive nodes with short refs, a separate page-to-text tool, screenshots as fallback, a coloured glow on the agent's tab, Stop and take-over controls, and confirmation for irreversible actions. Aether keeps the pattern and differs in what it returns per step (skim, focus, delta) and in holding the tool call during human input.
-- **Comet** runs its agent as a bundled extension over `chrome.debugger` with a cloud planner and batched actions. Its published failures were page text mixed with instructions, model-built URLs used for exfiltration, a privileged message surface open to a whole web origin, test handlers shipped in production, and string-matched URL blocks. Sections 4.2 and 8 address each.
-- **ego lite** gives agents separate Spaces with a blue glow and an explicit hand-off and take-over contract that requires re-reading the page. Sections 4.4 and 9.3 follow that contract; its docs note Spaces are not an auth boundary, which 4.4 states for the tab group.
-- **Interceptor** avoids the debugger and uses synthetic events, which forces OS-level input for trusted clicks. Aether keeps CDP input. Taken from it: refs that never re-bind, the uniform stale error, never replaying input after a lost reply, text-line diffs, tab-group isolation, large payloads off native messaging, and masking at one choke point.
-- **Dia** published the URL provenance rule after finding blocklists and guard models bypassable. Section 8.6.
-- **Token evidence**: diff-based history measured about 65 percent fewer input tokens at equal success; a find call returned 1.6 percent of a full snapshot; per-site workflow memory measured about 25 percent fewer steps with higher success. Counter-evidence: strong models scored 6 to 18 points higher on raw HTML than on a compact accessibility tree, mainly on filter, sort and table tasks, which is why focus mode keeps table structure and nothing is omitted without a ref to expand. Playwright MCP now defaults to incremental snapshots, which is why section 11 reports two Playwright baselines.
-- **Overlay pitfalls** reported for other products: high GPU use from animated shadows, a border that outlived the session, and the glow appearing in the agent's own screenshots. Section 9.1.
-- **BrowserOS** drives the page over CDP from a local server and, in its newer generation, is a pure MCP tool server with no built-in model loop, the same shape as Aether. It returns a whole-page accessibility snapshot once and a line diff after every action, has a blocking human-help tool, and fences page content with a per-call nonce. Its Chromium fork removes the debugger infobar and fills saved credentials natively, which a stock-Chrome extension cannot do. Taken from it: the nonce and origin on the untrusted wrapper (7), quoted names so page text cannot forge a ref (5.2), partial-capture reporting (5.1), pending-dialog state on every result (6), reporting a tab opened by a click (5.6), and surfacing a settle timeout instead of swallowing it (6). Not taken: whole-page snapshots with no viewport strategy, a general script or raw-CDP tool, prompt-only confirmation, and a server with no auth token. It built and then removed both a tool-approval UI and a file-based memory system; the reasons are not in its code, so Steps 3 and 6 each carry an exit gate that must show the feature earns its place.
+---
+
+## 16. Decisions needed from the person before the step that needs them
+
+| Id | Decision | Options | Needed by |
+|---|---|---|---|
+| D1 | Packaging and installer for Aether Desktop | `electron-builder`, `@electron/forge`, or run from source only in 3.1 | Step 6 (or earlier if an installer is wanted) |
+| D2 | SQLite driver inside Electron | Decided 2026-11-18 after S9: `node:sqlite` (built in). `better-sqlite3` removed | Done |
+| D3 | Cookie banner default | Decided 2026-11-18: a person's setting `cookieBanners` = `reject` (default), `accept` or `off` (6.1) | Done |
+| D4 | Vertical tabs as an option | Chrome-like horizontal only (3.1 default), or add a vertical tab layout later | After Step 4 |

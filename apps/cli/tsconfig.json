@@ -11,7 +11,8 @@
     { "path": "../../packages/cdp" },
     { "path": "../../packages/perceiver" },
     { "path": "../../packages/policy" },
-    { "path": "../../packages/memory" }
+    { "path": "../../packages/memory" },
+    { "path": "../../packages/codemode" }
   ],
   "include": ["src/**/*"]
 }
