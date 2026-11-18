@@ -5,6 +5,7 @@ import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
 import { MCPBrowserSession } from '@aether/engine';
 import { createCodeModeMcpServer, type CodeModeServer } from '../src/codemode/codemode-server.js';
 import { call, tokens } from './helpers.js';
+import { shopSurveyScript } from '../../../tests/shop-task.js';
 
 /**
  * Step 1 exit: Code Mode over the 2.0 engine. One aether_exec call surveys a
@@ -63,16 +64,7 @@ describe('Code Mode over MCP (Step 1)', () => {
   });
 
   it('surveys both shop pages, filters, checks product pages and returns a shortlist in one call', async () => {
-    const script = `
-const want = { query: 'running shoe', budget: 120, minRating: 4.3 };
-await space.open(${JSON.stringify(shop)});
-await space.logStep('Surveying the shop');
-const found = await space.survey({ ...want, maxPages: 2 });
-const fits = found.shortlist
-  .map((c) => c.item)
-  .filter((item) => (item.numericPrice ?? Infinity) <= want.budget && (item.numericRating ?? 0) >= want.minRating && !item.isOutOfStock);
-const checked = await space.mapPages(fits.slice(0, 3).map((item) => item.linkUrl!), (page) => ({ name: page.product?.name, price: page.product?.price, stock: page.product?.availability }));
-return { pages: found.stats.pages, harvested: found.stats.harvested, checked };`;
+    const script = shopSurveyScript(shop);
     const started = Date.now();
     const result = await execToEnd({ space: 'Shoe hunt', thought: 'Survey running shoes under $120, 4.3 stars or more', code: script });
     console.log(`one script: ${Date.now() - started} ms, ${result.holds} held answer(s), ${tokens(result.text)} result tokens`);

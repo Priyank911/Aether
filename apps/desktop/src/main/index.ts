@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { app, session as electronSession, type Session } from 'electron';
 import { CDPClient, ElectronDebuggerTransport } from '@aether/cdp';
+import { CodeModeHost } from '@aether/codemode';
 import { fileConfig, openDatabase, SpaceStore } from '@aether/memory';
 import { AgentHost } from './agent-host.js';
 import { pageSlots, type MemoryReading } from './concurrency.js';
@@ -12,13 +13,14 @@ import { installRequestFilter } from './request-filter.js';
 import { ShellBridge } from './shell-bridge.js';
 import { ShellWindow } from './shell-window.js';
 import { PERSIST_PARTITION, SpaceManager } from './space-manager.js';
+import { DesktopSpaceEngine } from './service/desktop-engine.js';
 import { startTestControl } from './test-control.js';
 
 /*
  * Aether Desktop, main process (plan 3.1, Step 2): one instance per person,
  * the main window, the agent host window, the Space manager, the memory
- * watchdog, request filtering and security settings. Code Mode and the daemon
- * for hosts attach to the same Space manager in Step 3.
+ * watchdog, request filtering and security settings. Phase 3 adds the engine
+ * (Code Mode over Spaces) and, in 3.4, the service hosts connect through.
  */
 
 const paths = aetherPaths();
@@ -81,6 +83,19 @@ function start(): void {
   manager.restore();
   bridge.push();
 
+  // Code Mode over the desktop's Spaces (plan 3.2, task 3.2). Milestones from
+  // the host's thought, logStep and the engine go to the Activity panel.
+  const engine = new DesktopSpaceEngine({
+    manager,
+    client,
+    database: db,
+    config,
+    onMilestone: (spaceId, text, source) => manager.addMilestone(spaceId, text, source),
+  });
+  // Tests shorten the hold time so a held run is observable in seconds.
+  const holdReturnMs = Number(process.env.AETHER_HOLD_RETURN_MS) || undefined;
+  const codeMode = new CodeModeHost(engine, holdReturnMs ? { holdReturnMs } : {});
+
   const watchdog = new MemoryWatchdog(manager, memory, () => config.read().minFreeMemoryRatio);
   watchdog.start();
 
@@ -91,6 +106,8 @@ function start(): void {
       watchdog,
       client,
       slots,
+      engine,
+      codeMode,
       setMemory: (reading) => {
         memoryOverride = reading;
       },
@@ -104,6 +121,7 @@ function start(): void {
   });
   shellWindow.window.on('closed', () => app.quit());
   app.on('before-quit', () => {
+    codeMode.stopAll();
     watchdog.stop();
     manager.closeAll();
     transport.close();

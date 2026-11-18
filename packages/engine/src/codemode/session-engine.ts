@@ -43,7 +43,7 @@ function errorCode(text: string): 'denied' | 'refused' | 'stale_ref' | 'engine' 
 }
 
 export class SessionSpaceEngine implements SpaceEngine {
-  private readonly session: MCPBrowserSession;
+  public readonly session: MCPBrowserSession;
   /** One agent tab: page reads in mapPages take turns. */
   private tabQueue: Promise<unknown> = Promise.resolve();
   private lastBrief?: PageBrief;
@@ -56,8 +56,6 @@ export class SessionSpaceEngine implements SpaceEngine {
     switch (method) {
       case 'open':
         return this.open(String(args[0]), Boolean((args[1] as { newTab?: boolean } | undefined)?.newTab), run);
-      case 'mapPage':
-        return this.exclusive(() => this.open(String(args[0]), false, run));
       case 'skim':
         return this.skim(run);
       case 'focus': {
@@ -89,15 +87,24 @@ export class SessionSpaceEngine implements SpaceEngine {
         return [...output.notes, ...(output.page ? [output.page] : [])].join('\n');
       }
       case 'logStep':
-        this.session.setStep(String(args[0]));
+        this.session.setStep(String(args[0]), 'script');
         return undefined;
       case 'tabs': {
-        const info = this.session.pageInfo();
-        return info ? [{ id: TAB_ID, title: info.title, url: info.url, state: 'live' }] : [];
+        return this.session.listTabs().map((tab) => ({ id: tab.id, title: tab.title, url: tab.url, state: tab.state === 'loading' || tab.state === 'live' ? 'live' : tab.state }));
       }
-      case 'openTabs':
-      case 'switchTab':
-        throw new CodeModeCallError('engine', `space.${method} needs the Aether app; with the Chrome extension there is one agent tab. Use space.mapPages to read several pages.`);
+      case 'openTabs': {
+        const options = (args[1] ?? {}) as { lazy?: boolean };
+        const receipt = await this.data(() => this.session.openTabsData((args[0] as string[]).map(String), Boolean(options.lazy)));
+        return receipt;
+      }
+      case 'switchTab': {
+        const output = await this.settled(() => this.session.switchTabTo(String(args[0])));
+        if (output.isError && output.page === undefined) throw new CodeModeCallError(errorCode(output.notes.join(' ')), output.notes.join(' ') || 'the engine refused this call');
+        return this.brief({ ...output, notes: [] }, run);
+      }
+      case 'mapPage':
+        // With real Space tabs each page gets its own tab; with the one agent tab the reads take turns.
+        return this.exclusive(() => this.open(String(args[0]), this.session.tabs.multiTab, run));
       case 'stateGet':
       case 'stateSet':
         throw new CodeModeCallError('engine', 'space.state is handled by the Code Mode host');
@@ -110,11 +117,12 @@ export class SessionSpaceEngine implements SpaceEngine {
   }
 
   public runStarted(_run: RunContext, thought: string): void {
-    this.session.setStep(thought);
+    this.session.setStep(thought, 'host');
   }
 
   public runEnded(_run: RunContext, _outcome: ExecOutcome): void {
     this.lastBrief = undefined;
+    this.session.tabs.runEnded?.();
   }
 
   private async open(url: string, newTab: boolean, run: RunContext): Promise<PageBrief> {
@@ -137,7 +145,7 @@ export class SessionSpaceEngine implements SpaceEngine {
     const brief: PageBrief = {
       url: info?.url ?? output.url ?? '',
       title: info?.title ?? '',
-      tabId: TAB_ID,
+      tabId: this.session.currentTabId() ?? TAB_ID,
       archetype: output.landing?.archetype ?? this.lastBrief?.archetype ?? 'other',
       landing: output.landing?.notes ?? [],
       skim: [...output.notes.filter((note) => !landingNotes.has(note)), ...(output.page ? [output.page] : [])].join('\n'),

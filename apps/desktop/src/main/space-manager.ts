@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { session as electronSession, type WebContentsView } from 'electron';
 import type { ElectronDebuggerTransport } from '@aether/cdp';
 import type { SpaceStore } from '@aether/memory';
-import { HUMAN_SPACE_ID, spaceIdFromName, type Space, type SpacePartition } from '@aether/shared';
+import { HUMAN_SPACE_ID, spaceIdFromName, type Milestone, type MilestoneStatus, type Space, type SpacePartition } from '@aether/shared';
 import type { AgentHost } from './agent-host.js';
 import { Tab } from './tab.js';
 
@@ -74,6 +74,8 @@ export class SpaceManager extends EventEmitter {
   private readonly saveTimers = new Map<string, NodeJS.Timeout>();
   private visible = HUMAN_SPACE_ID;
   private readonly closedTabs: Array<{ spaceId: string; url: string }> = [];
+  private readonly milestones = new Map<string, Milestone[]>();
+  private milestoneSeq = 0;
 
   public constructor(options: SpaceManagerOptions) {
     super();
@@ -271,6 +273,28 @@ export class SpaceManager extends EventEmitter {
       }
     }
     return tabs.sort((a, b) => a.lastViewedAt - b.lastViewedAt);
+  }
+
+  /**
+   * One line of agent progress for the Activity panel (plan 3.2, task 3.2):
+   * the host's thought, logStep lines and engine receipts. Kept in memory
+   * only; the text is engine or script text, drawn as text, never as markup.
+   */
+  public addMilestone(spaceId: string, text: string, source: Milestone['source'], status: MilestoneStatus = 'done'): Milestone {
+    const milestone: Milestone = { id: `m${++this.milestoneSeq}`, spaceId, text: text.slice(0, 200), status, source, startedAt: Date.now() };
+    const list = this.milestones.get(spaceId);
+    if (list) {
+      list.push(milestone);
+      if (list.length > 50) list.splice(0, list.length - 50);
+    } else {
+      this.milestones.set(spaceId, [milestone]);
+    }
+    this.emit('changed');
+    return milestone;
+  }
+
+  public milestonesFor(spaceId: string): Milestone[] {
+    return this.milestones.get(spaceId) ?? [];
   }
 
   public shownTab(): Tab | undefined {

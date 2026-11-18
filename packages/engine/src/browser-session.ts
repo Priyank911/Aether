@@ -44,7 +44,8 @@ import { approvalDetail, asPolicyTarget, enclosingFormFields, inCaptchaFrame } f
 import { RunState } from './run/run-state.js';
 import { ActionLog } from './run/action-log.js';
 import { MemoryRefusedError, MemoryStore, openDatabase, RunLog, siteOf, type DatabaseHandle, type Logger } from '@aether/memory';
-import { AgentTab } from './agent-tab.js';
+import type { AgentTab } from './agent-tab.js';
+import { CdpTabController, type SessionTabController, type SessionTabInfo } from './tab-controller.js';
 import { fileConfig, type ConfigSource } from '@aether/memory';
 import { smartLanding } from './landing/smart-landing.js';
 
@@ -71,14 +72,8 @@ export interface MCPBrowserSessionOptions {
   logger?: Logger;
   /** The person's settings; ~/.aether/config.json when omitted. */
   config?: ConfigSource;
-}
-
-interface TargetInfo {
-  targetId: string;
-  type: string;
-  url?: string;
-  title?: string;
-  openerId?: string;
+  /** One line of progress from the engine or the script, for the Activity panel. */
+  onMilestone?: (label: string, source: 'engine' | 'script' | 'host') => void;
 }
 
 interface LayoutMetricsResult {
@@ -121,7 +116,8 @@ export class MCPBrowserSession {
   private readonly browser?: LaunchedBrowser;
   private readonly client: CDPClient;
   private tab?: AgentTab;
-  private readonly openedByTab: string[] = [];
+  /** Where tabs come from: CDP discovery, or the host's Space manager. */
+  public readonly tabs: SessionTabController;
   private readonly continuations = new Map<string, Continuation>();
   private readonly visitedOrigins = new Set<string>();
   private readonly seenLinks = new Set<string>();
@@ -131,22 +127,21 @@ export class MCPBrowserSession {
   public readonly runLog: RunLog;
   private readonly logger?: Logger;
   private readonly config: ConfigSource;
+  private readonly onMilestone?: (label: string, source: 'engine' | 'script' | 'host') => void;
   private readonly actions = new ActionLog();
   private readonly seenItems = new Set<string>();
   private lastSkim?: PageModel;
 
-  private constructor(client: CDPClient, browser?: LaunchedBrowser, options: MCPBrowserSessionOptions = {}) {
+  private constructor(client: CDPClient, browser?: LaunchedBrowser, options: MCPBrowserSessionOptions = {}, controller?: SessionTabController) {
     this.browser = browser;
     this.client = client;
+    this.tabs = controller ?? new CdpTabController(client);
     const database = options.database ?? openDatabase(':memory:');
     this.memoryStore = new MemoryStore(database);
     this.runLog = new RunLog(database);
     this.logger = options.logger;
     this.config = options.config ?? fileConfig(undefined, (message) => this.logger?.warn(message));
-    this.client.on('Target.targetCreated', (params: { targetInfo: TargetInfo }) => {
-      const info = params.targetInfo;
-      if (info.type === 'page' && this.tab && info.openerId === this.tab.targetId) this.openedByTab.push(info.targetId);
-    });
+    this.onMilestone = options.onMilestone;
   }
 
   public static async launch(options: MCPBrowserSessionOptions = {}): Promise<MCPBrowserSession> {
@@ -165,11 +160,16 @@ export class MCPBrowserSession {
     }
   }
 
-  /** A session over an existing client, such as one carried by the extension bridge. */
-  public static async over(client: CDPClient, options: MCPBrowserSessionOptions = {}): Promise<MCPBrowserSession> {
-    const session = new MCPBrowserSession(client, undefined, options);
+  /** A session over an existing client, such as one carried by the extension bridge or the desktop app. */
+  public static async over(client: CDPClient, options: MCPBrowserSessionOptions = {}, controller?: SessionTabController): Promise<MCPBrowserSession> {
+    const session = new MCPBrowserSession(client, undefined, options, controller);
     await session.discoverTargets();
     return session;
+  }
+
+  /** A session over a host-owned client that manages tabs itself; no CDP target discovery. */
+  public static overSync(client: CDPClient, options: MCPBrowserSessionOptions = {}, controller?: SessionTabController): MCPBrowserSession {
+    return new MCPBrowserSession(client, undefined, options, controller);
   }
 
   public async open(params: z.infer<typeof OpenParamsSchema>): Promise<ToolOutput> {
@@ -368,6 +368,11 @@ export class MCPBrowserSession {
    */
 
   /** URL and title of the agent tab's last capture. */
+  /** The id of the tab the agent works in, for PageBrief.tabId. */
+  public currentTabId(): string | undefined {
+    return this.tab?.targetId;
+  }
+
   public pageInfo(): { url: string; title: string } | undefined {
     const last = this.tab?.perceiver.last;
     return last ? { url: last.url, title: last.title } : undefined;
@@ -427,9 +432,65 @@ export class MCPBrowserSession {
     return readProductFacts(tab.session);
   }
 
-  /** Show a script's progress line as the current step. */
-  public setStep(label: string): void {
+  /** The host's tabs for the Space, when it keeps several; otherwise the one agent tab. */
+  public listTabs(): SessionTabInfo[] {
+    if (this.tabs.list) return this.tabs.list();
+    const info = this.pageInfo();
+    return info ? [{ id: this.tab?.targetId ?? 't1', title: info.title, url: info.url, state: 'live' }] : [];
+  }
+
+  /** Make another tab of the Space the one the agent works in (plan 3.2, section 5.1). */
+  public switchTabTo(tabId: string): Promise<ToolOutput> {
+    return this.guarded(`Switching to tab ${tabId}`, async () => {
+      const switchTo = this.tabs.switchTo?.bind(this.tabs);
+      if (!switchTo) return { notes: ['switchTab needs the Aether app; with the Chrome extension there is one agent tab.'], isError: true };
+      const tab = await switchTo(tabId);
+      this.tab = tab;
+      this.lastSkim = undefined;
+      return { notes: [`tab ${tabId} is now the agent tab`], url: tab.perceiver.last?.url };
+    });
+  }
+
+  /**
+   * Open several URLs as Space tabs (plan 3.2, sections 5.2 and 9.4). Every
+   * URL passes provenance; the ones held are approved or denied together on
+   * one card, and nothing loads until the person answers.
+   */
+  public async openTabsData(urls: readonly string[], lazy: boolean): Promise<Guarded<{ tabIds: string[]; live: number; hibernated: number }>> {
+    let receipt: { tabIds: string[]; live: number; hibernated: number } | undefined;
+    const output = await this.guarded(`Opening ${urls.length} pages`, async () => {
+      const openTabs = this.tabs.openTabs?.bind(this.tabs);
+      if (!openTabs) return { notes: ['openTabs needs the Aether app; with the Chrome extension there is one agent tab. Use mapPages to read several pages.'], isError: true };
+      const refused = urls
+        .map((url) => ({ url, decision: classifyOpen(url, this.navigationContext()) }))
+        .filter((entry) => entry.decision.outcome === 'refuse');
+      if (refused.length > 0) {
+        return { notes: [`refuse: ${refused.map((entry) => `${entry.url}: ${entry.decision.reason}`).join('; ')}`], isError: true };
+      }
+      const open = async (): Promise<ToolOutput> => {
+        receipt = await openTabs(urls, lazy);
+        for (const url of urls) {
+          const origin = originOf(url);
+          if (origin) this.visitedOrigins.add(origin);
+        }
+        return { notes: [`opened ${receipt.live} live and ${receipt.hibernated} sleeping tabs`] };
+      };
+      const held = urls.filter((url) => classifyOpen(url, this.navigationContext()).outcome === 'needs_approval');
+      if (held.length === 0) return open();
+      const pending = this.run.hold('approval', `Open ${held.length} new sites the script built?`, {
+        approval: { site: `${held.length} new sites`, element: held.join('\n'), values: [], agentReason: 'these URLs carry data to origins the run has not visited' },
+      });
+      return this.holdAndContinue(pending.id, async (reply) =>
+        reply.kind === 'approve' ? open() : { notes: ['the person denied opening these URLs; nothing was done.'], isError: true },
+      );
+    });
+    return receipt ? { data: receipt } : { blocked: output };
+  }
+
+  /** Show a script's progress line as the current step, and report it as a milestone. */
+  public setStep(label: string, source: 'engine' | 'script' | 'host' = 'engine'): void {
     if (this.run.state === 'acting' || this.run.state === 'idle') this.run.acting(label);
+    this.onMilestone?.(label, source);
   }
 
   /** One row per tool call in the run log, plus a log line. Tool arguments are not logged, only the tool and its size. */
@@ -685,10 +746,9 @@ export class MCPBrowserSession {
   /** When the last action opened a tab, make it the agent tab and return its skim. */
   private async followNewTab(): Promise<string | undefined> {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const targetId = this.openedByTab.pop();
-    this.openedByTab.length = 0;
+    const targetId = await this.tabs.followOpener();
     if (!targetId) return undefined;
-    const tab = await AgentTab.attach(this.client, targetId);
+    const tab = await this.tabs.attach(targetId);
     await tab.watcher.untilLoaded(NEW_TAB_LOAD_MS);
     await new Promise((resolve) => setTimeout(resolve, 300));
     this.tab = tab;
@@ -696,29 +756,13 @@ export class MCPBrowserSession {
   }
 
   private async newTab(): Promise<AgentTab> {
-    let targetId: string;
-    try {
-      ({ targetId } = await this.client.sendCommand<{ targetId: string }>('Target.createTarget', { url: 'about:blank' }));
-    } catch {
-      throw new Error('new_tab is not available through the extension yet; open the URL in the current tab');
-    }
-    this.tab = await AgentTab.attach(this.client, targetId);
+    this.tab = await this.tabs.create();
     return this.tab;
   }
 
   private async currentTab(): Promise<AgentTab> {
     if (this.tab?.isAlive) return this.tab;
-    const { targetInfos } = await this.client.sendCommand<{ targetInfos: TargetInfo[] }>('Target.getTargets');
-    const pageTarget = targetInfos.find((target) => target.type === 'page');
-    if (!pageTarget) throw new Error('No Chrome page is available');
-    if (pageTarget.url && /^(chrome|chrome-extension|devtools):/i.test(pageTarget.url)) {
-      throw new Error(`The active tab is a protected Chrome page (${pageTarget.title || pageTarget.url}). Switch to a regular http(s) tab and retry.`);
-    }
-    try {
-      this.tab = await AgentTab.attach(this.client, pageTarget.targetId);
-    } catch (error) {
-      throw new Error(`Could not attach to the Chrome tab: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    this.tab = await this.tabs.current();
     return this.tab;
   }
 

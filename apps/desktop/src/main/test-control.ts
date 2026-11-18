@@ -3,18 +3,21 @@ import { writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { app } from 'electron';
 import type { CDPClient, CDPSession } from '@aether/cdp';
+import type { CodeModeHost } from '@aether/codemode';
 import type { SpaceStore } from '@aether/memory';
 import { Perceiver, renderSkim } from '@aether/perceiver';
 import type { MemoryReading } from './concurrency.js';
 import type { MemoryWatchdog } from './memory-watchdog.js';
+import type { DesktopSpaceEngine } from './service/desktop-engine.js';
 import type { SpaceManager } from './space-manager.js';
 
 /*
  * Test control (plan 3.1, Step 2 exit tests). Exists only when the app is
  * started with AETHER_TEST_CONTROL=<file>: a loopback socket whose port and
  * random token are written to that file, taking one JSON request per line.
- * It drives the Space manager directly and checks the engine path through
- * the Electron CDP transport. The daemon for hosts arrives in Step 3.
+ * It drives the Space manager directly, checks the engine path through the
+ * Electron CDP transport, and runs Code Mode scripts. The daemon for hosts
+ * arrives in Phase 3.4.
  */
 
 export interface TestControlDeps {
@@ -23,6 +26,8 @@ export interface TestControlDeps {
   watchdog: MemoryWatchdog;
   client: CDPClient;
   slots: () => number;
+  engine: DesktopSpaceEngine;
+  codeMode: CodeModeHost;
   /** Replace the machine's memory reading, or restore it with undefined. */
   setMemory: (reading: MemoryReading | undefined) => void;
   filtered: { blocked: number };
@@ -102,6 +107,40 @@ export function startTestControl(file: string, deps: TestControlDeps): Server {
       }
       return true;
     },
+    /** Code Mode (plan 3.2): one aether_exec through the app's host; a wait call carries the held token instead of code. */
+    exec: (args) => {
+      if (args.wait === undefined && typeof args.code !== 'string') {
+        throw new Error('exec needs code (a script) or wait (a held token)');
+      }
+      return deps.codeMode.exec({
+        ...(args.space === undefined ? {} : { space: text(args.space) }),
+        thought: text(args.thought),
+        ...(args.code === undefined ? {} : { code: text(args.code) }),
+        ...(args.wait === undefined ? {} : { wait: text(args.wait) }),
+      });
+    },
+    milestones: (args) => deps.manager.milestonesFor(text(args.spaceId)).map((milestone) => ({ text: milestone.text, source: milestone.source })),
+    /** The request the Space's run is waiting on, if any. */
+    pending: (args) => {
+      const waiting = deps.engine.sessionFor(text(args.spaceId))?.run.waiting;
+      return waiting ? { id: waiting.id, reason: waiting.reason, prompt: waiting.prompt } : undefined;
+    },
+    /** The person answered a pending request in the Space (interim bar path). */
+    runReply: (args) => {
+      const ok = deps.engine.reply(text(args.spaceId), {
+        id: text(args.id),
+        kind: args.kind === 'answer' || args.kind === 'approve' || args.kind === 'deny' || args.kind === 'done' || args.kind === 'resume' ? args.kind : 'answer',
+        ...(args.text === undefined ? {} : { text: text(args.text) }),
+      });
+      if (!ok) throw new Error('no pending request matches this reply');
+      return true;
+    },
+    /** Stop or Take over at once, whether or not a call is in flight. */
+    runControl: (args) => {
+      deps.engine.control(text(args.spaceId), args.kind === 'stop' ? 'stop' : 'takeover');
+      if (args.kind === 'stop') deps.codeMode.stop(text(args.spaceId));
+      return true;
+    },
     quit: () => {
       setTimeout(() => app.quit(), 50);
       return true;
@@ -142,7 +181,10 @@ export function startTestControl(file: string, deps: TestControlDeps): Server {
           .then(() => op(request.args ?? {}))
           .then(
             (result) => socket.write(`${JSON.stringify({ id: request.id, result: result ?? null })}\n`),
-            (error: unknown) => socket.write(`${JSON.stringify({ id: request.id, error: error instanceof Error ? error.message : String(error) })}\n`),
+            (error: unknown) => {
+              const message = error instanceof Error ? error.message : String(error);
+              socket.write(`${JSON.stringify({ id: request.id, error: `op ${request.op}: ${message}` })}\n`);
+            },
           );
       }
     });

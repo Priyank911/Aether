@@ -71,6 +71,9 @@ importers:
       '@aether/cdp':
         specifier: workspace:*
         version: link:../../packages/cdp
+      '@aether/codemode':
+        specifier: workspace:*
+        version: link:../../packages/codemode
       '@aether/engine':
         specifier: workspace:*
         version: link:../../packages/engine

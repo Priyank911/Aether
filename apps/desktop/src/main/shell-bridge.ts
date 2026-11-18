@@ -36,7 +36,7 @@ export function buildSnapshot(manager: SpaceManager): ShellSnapshot {
       space: entry.record,
       tabs: entry.tabs.map(shellTab),
       ...(entry.activeTabId ? { activeTabId: entry.activeTabId } : {}),
-      milestones: [],
+      milestones: manager.milestonesFor(entry.record.id),
     })),
   };
 }

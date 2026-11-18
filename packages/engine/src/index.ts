@@ -6,6 +6,8 @@
  */
 export { MCPBrowserSession } from './browser-session.js';
 export type { Guarded, MCPBrowserSessionOptions, ToolOutput } from './browser-session.js';
+export { CdpTabController } from './tab-controller.js';
+export type { SessionTabController, SessionTabInfo } from './tab-controller.js';
 export { AgentTab, NAVIGATION_TIMEOUT_MS } from './agent-tab.js';
 export { smartLanding } from './landing/smart-landing.js';
 export type { LandingResult } from './landing/smart-landing.js';

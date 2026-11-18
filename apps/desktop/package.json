@@ -15,7 +15,8 @@
     "@aether/perceiver": "workspace:*",
     "@aether/policy": "workspace:*",
     "@aether/shared": "workspace:*",
-    "@aether/engine": "workspace:*"
+    "@aether/engine": "workspace:*",
+    "@aether/codemode": "workspace:*"
   },
   "devDependencies": {
     "electron": "45.2.2"
