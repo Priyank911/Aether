@@ -11,7 +11,7 @@ import {
 } from '@aether/shared';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { MCPBrowserSession } from '@aether/engine';
-import { toToolResult, type ToolContent } from '../mcp/tool-output.js';
+import { toToolResult, type ToolContent } from '@aether/engine';
 import { CODEMODE_INSTRUCTIONS } from './instructions.js';
 import { renderReport } from '@aether/engine';
 import { SPACE_SDK_DECLARATION } from './sdk-declaration.js';

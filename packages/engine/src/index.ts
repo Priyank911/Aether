@@ -17,3 +17,5 @@ export type { RenderedReport } from './codemode/render-report.js';
 export { RunState, HOLD_TIMEOUT_MS } from './run/run-state.js';
 export { ActionLog } from './run/action-log.js';
 export { approvalDetail, asPolicyTarget, enclosingFormFields, inCaptchaFrame } from './run/approval.js';
+export { toToolResult, wrapUntrustedPageText } from './tool-output.js';
+export type { ToolContent } from './tool-output.js';

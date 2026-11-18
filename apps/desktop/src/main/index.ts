@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import { availableParallelism } from 'node:os';
 import { app, session as electronSession, type Session } from 'electron';
 import { CDPClient, ElectronDebuggerTransport } from '@aether/cdp';
@@ -13,7 +14,10 @@ import { installRequestFilter } from './request-filter.js';
 import { ShellBridge } from './shell-bridge.js';
 import { ShellWindow } from './shell-window.js';
 import { PERSIST_PARTITION, SpaceManager } from './space-manager.js';
+import { DesktopTools } from './service/desktop-tools.js';
 import { DesktopSpaceEngine } from './service/desktop-engine.js';
+import { ServiceServer } from './service/server.js';
+import { removeServiceFile, serviceEndpoint, writeServiceFile } from './service/service-file.js';
 import { startTestControl } from './test-control.js';
 
 /*
@@ -99,6 +103,15 @@ function start(): void {
   const watchdog = new MemoryWatchdog(manager, memory, () => config.read().minFreeMemoryRatio);
   watchdog.start();
 
+  // The one app service (plan 3.2, task 3.4): hosts reach the app through it.
+  const serviceFile = path.join(paths.home, 'daemon.json');
+  const service = new ServiceServer({
+    config: writeServiceFile(serviceFile, serviceEndpoint(paths.home), app.getVersion()),
+    tools: new DesktopTools({ manager, engine, codeMode }),
+    appVersion: app.getVersion(),
+  });
+  void service.listen().catch((error: unknown) => console.error(`the app service could not listen: ${error instanceof Error ? error.message : String(error)}`));
+
   if (testControlFile) {
     startTestControl(testControlFile, {
       manager,
@@ -121,6 +134,8 @@ function start(): void {
   });
   shellWindow.window.on('closed', () => app.quit());
   app.on('before-quit', () => {
+    void service.close();
+    removeServiceFile(serviceFile);
     codeMode.stopAll();
     watchdog.stop();
     manager.closeAll();

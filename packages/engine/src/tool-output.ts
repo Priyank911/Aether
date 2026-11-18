@@ -1,5 +1,10 @@
-import type { ToolOutput } from '@aether/engine';
-import { wrapUntrustedPageText } from './untrusted.js';
+import { wrapUntrusted } from '@aether/policy';
+import type { ToolOutput } from './browser-session.js';
+
+/** Page-derived text for the model, inside the nonce-tagged untrusted wrapper. */
+export function wrapUntrustedPageText(text: string, url?: string): string {
+  return wrapUntrusted(text, url);
+}
 
 /*
  * An engine output as MCP content: engine notes first and outside the

@@ -6,7 +6,7 @@
  * Usage: npx tsx scripts/spikes/s4b-items-real.ts [url ...]
  */
 import { MCPBrowserSession, type ToolOutput } from '../../packages/engine/src/browser-session.js';
-import { toToolResult } from '../../apps/cli/src/mcp/tool-output.js';
+import { toToolResult } from '../../packages/engine/src/tool-output.js';
 
 const DEFAULT_URLS = [
   'https://books.toscrape.com/catalogue/category/books/mystery_3/index.html',

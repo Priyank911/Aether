@@ -1,5 +1,5 @@
 import type { MCPBrowserSession, ToolOutput } from '@aether/engine';
-import { toToolResult } from '../src/mcp/tool-output.js';
+import { toToolResult } from '@aether/engine';
 
 /**
  * Test-only: the engine operations Code Mode is built on (open, look, find,
