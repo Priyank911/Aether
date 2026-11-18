@@ -10,12 +10,12 @@ import {
   spacesParamsProblem,
 } from '@aether/shared';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { MCPBrowserSession } from '../mcp/browser-session.js';
+import type { MCPBrowserSession } from '@aether/engine';
 import { toToolResult, type ToolContent } from '../mcp/tool-output.js';
 import { CODEMODE_INSTRUCTIONS } from './instructions.js';
-import { renderReport } from './render-report.js';
+import { renderReport } from '@aether/engine';
 import { SPACE_SDK_DECLARATION } from './sdk-declaration.js';
-import { SessionSpaceEngine } from './session-engine.js';
+import { SessionSpaceEngine } from '@aether/engine';
 
 /*
  * The four Code Mode operations as MCP tools (plan 3.1, section 8.1): the

@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true
+  },
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/cdp" },
+    { "path": "../../packages/actor" },
+    { "path": "../../packages/perceiver" },
+    { "path": "../../packages/policy" },
+    { "path": "../../packages/memory" },
+    { "path": "../../packages/codemode" }
+  ],
+  "include": ["src/**/*"]
+}

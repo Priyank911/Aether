@@ -3,7 +3,7 @@ import { createLogger, openDatabase } from '@aether/memory';
 import type { MemoryCommand } from '@aether/shared';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ExtensionBridge } from './bridge.js';
-import { MCPBrowserSession, type MCPBrowserSessionOptions } from './browser-session.js';
+import { MCPBrowserSession, type MCPBrowserSessionOptions } from '@aether/engine';
 import { createCodeModeMcpServer } from '../codemode/codemode-server.js';
 
 export interface MCPServerOptions extends MCPBrowserSessionOptions {
@@ -54,5 +54,4 @@ export async function runMcpServer(options: MCPServerOptions = {}): Promise<void
 }
 
 export { ExtensionBridge } from './bridge.js';
-export { MCPBrowserSession } from './browser-session.js';
 export { createCodeModeMcpServer } from '../codemode/codemode-server.js';

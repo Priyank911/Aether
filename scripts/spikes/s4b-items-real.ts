@@ -5,7 +5,7 @@
  *
  * Usage: npx tsx scripts/spikes/s4b-items-real.ts [url ...]
  */
-import { MCPBrowserSession, type ToolOutput } from '../../apps/cli/src/mcp/browser-session.js';
+import { MCPBrowserSession, type ToolOutput } from '../../packages/engine/src/browser-session.js';
 import { toToolResult } from '../../apps/cli/src/mcp/tool-output.js';
 
 const DEFAULT_URLS = [

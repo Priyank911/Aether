@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { CDPClient, ChromeLauncher, type CDPSession, type LaunchedBrowser } from '@aether/cdp';
 import { ExtensionBridge } from '../src/mcp/bridge.js';
-import { MCPBrowserSession } from '../src/mcp/browser-session.js';
+import { MCPBrowserSession } from '@aether/engine';
 
 export const EXTENSION_PATH = path.resolve('apps/extension/.output/chrome-mv3');
 

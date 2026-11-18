@@ -2,7 +2,7 @@ import { CodeModeCallError, type RunContext, type SpaceEngine } from '@aether/co
 import { ItemBucket, type BucketItem } from '@aether/perceiver';
 import type { ActionItemSchema, ActionRiskSchema, ExecOutcome, PageArchetype, SpaceMethod, WaitReason } from '@aether/shared';
 import type { z } from 'zod';
-import type { Guarded, MCPBrowserSession, ToolOutput } from '../mcp/browser-session.js';
+import type { Guarded, MCPBrowserSession, ToolOutput } from '../browser-session.js';
 
 /*
  * space.* over the 2.0 engine (plan 3.1, Step 1), so Code Mode can be tried

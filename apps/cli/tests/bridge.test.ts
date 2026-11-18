@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { CDPClient } from '@aether/cdp';
 import { ExtensionBridge } from '../src/mcp/bridge.js';
-import { RunState } from '../src/run/run-state.js';
+import { RunState } from '@aether/engine';
 
 const ORIGIN = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
 

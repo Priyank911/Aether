@@ -8,7 +8,7 @@ import type { Duplex } from 'node:stream';
 import type { CDPTransport } from '@aether/cdp';
 import { BridgeConfigSchema, ExtensionMessageSchema, type EngineMessage, type RunStateFrame } from '@aether/shared';
 import { WebSocket, WebSocketServer } from 'ws';
-import type { RunState } from '../run/run-state.js';
+import type { RunState } from '@aether/engine';
 
 /** No native messaging cap on this socket; large AX trees and screenshots fit. */
 const MAX_FRAME_BYTES = 256 * 1024 * 1024;

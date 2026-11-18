@@ -11,13 +11,13 @@
     "clean": "rimraf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@aether/actor": "workspace:*",
     "@aether/cdp": "workspace:*",
+    "@aether/codemode": "workspace:*",
+    "@aether/engine": "workspace:*",
+    "@aether/memory": "workspace:*",
     "@aether/perceiver": "workspace:*",
     "@aether/policy": "workspace:*",
     "@aether/shared": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.32.2",
-    "@aether/memory": "workspace:*",
-    "@aether/codemode": "workspace:*"
+    "@modelcontextprotocol/sdk": "^1.32.2"
   }
 }

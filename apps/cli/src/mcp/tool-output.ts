@@ -1,4 +1,4 @@
-import type { ToolOutput } from './browser-session.js';
+import type { ToolOutput } from '@aether/engine';
 import { wrapUntrustedPageText } from './untrusted.js';
 
 /*

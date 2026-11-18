@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
 import type { HumanReply, Pending } from '@aether/shared';
-import { MCPBrowserSession } from '../src/mcp/index.js';
+import { MCPBrowserSession } from '@aether/engine';
 import { engineClient, type EngineClient } from './engine-client.js';
 import { call, refIn } from './helpers.js';
 

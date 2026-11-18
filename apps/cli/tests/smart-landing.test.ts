@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
 import { AetherConfigSchema, type AetherConfig, type CookieBannerMode } from '@aether/shared';
-import { MCPBrowserSession, type ToolOutput } from '../src/mcp/browser-session.js';
+import { MCPBrowserSession, type ToolOutput } from '@aether/engine';
 
 /**
  * Smart Landing (plan 3.1, section 6.1, decision D3): every open settles the

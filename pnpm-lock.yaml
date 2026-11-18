@@ -41,15 +41,15 @@ importers:
 
   apps/cli:
     dependencies:
-      '@aether/actor':
-        specifier: workspace:*
-        version: link:../../packages/actor
       '@aether/cdp':
         specifier: workspace:*
         version: link:../../packages/cdp
       '@aether/codemode':
         specifier: workspace:*
         version: link:../../packages/codemode
+      '@aether/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
       '@aether/memory':
         specifier: workspace:*
         version: link:../../packages/memory
@@ -71,6 +71,9 @@ importers:
       '@aether/cdp':
         specifier: workspace:*
         version: link:../../packages/cdp
+      '@aether/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
       '@aether/memory':
         specifier: workspace:*
         version: link:../../packages/memory
@@ -177,6 +180,33 @@ importers:
       '@aether/shared':
         specifier: workspace:*
         version: link:../shared
+
+  packages/engine:
+    dependencies:
+      '@aether/actor':
+        specifier: workspace:*
+        version: link:../actor
+      '@aether/cdp':
+        specifier: workspace:*
+        version: link:../cdp
+      '@aether/codemode':
+        specifier: workspace:*
+        version: link:../codemode
+      '@aether/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@aether/perceiver':
+        specifier: workspace:*
+        version: link:../perceiver
+      '@aether/policy':
+        specifier: workspace:*
+        version: link:../policy
+      '@aether/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
 
   packages/memory:
     dependencies:

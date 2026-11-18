@@ -1,4 +1,4 @@
-import type { MCPBrowserSession, ToolOutput } from '../src/mcp/browser-session.js';
+import type { MCPBrowserSession, ToolOutput } from '@aether/engine';
 import { toToolResult } from '../src/mcp/tool-output.js';
 
 /**

@@ -6,13 +6,32 @@
     "composite": true
   },
   "references": [
-    { "path": "../../packages/actor" },
-    { "path": "../../packages/shared" },
-    { "path": "../../packages/cdp" },
-    { "path": "../../packages/perceiver" },
-    { "path": "../../packages/policy" },
-    { "path": "../../packages/memory" },
-    { "path": "../../packages/codemode" }
+    {
+      "path": "../../packages/actor"
+    },
+    {
+      "path": "../../packages/shared"
+    },
+    {
+      "path": "../../packages/cdp"
+    },
+    {
+      "path": "../../packages/perceiver"
+    },
+    {
+      "path": "../../packages/policy"
+    },
+    {
+      "path": "../../packages/memory"
+    },
+    {
+      "path": "../../packages/codemode"
+    },
+    {
+      "path": "../../packages/engine"
+    }
   ],
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*"
+  ]
 }

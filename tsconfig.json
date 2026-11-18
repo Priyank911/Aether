@@ -1,17 +1,44 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/shared" },
-    { "path": "./packages/cdp" },
-    { "path": "./packages/perceiver" },
-    { "path": "./packages/actor" },
-    { "path": "./packages/policy" },
-    { "path": "./packages/memory" },
-    { "path": "./packages/codemode" },
-    { "path": "./fixtures" },
-    { "path": "./apps/cli" },
-    { "path": "./apps/desktop" },
-    { "path": "./apps/native-host" },
-    { "path": "./apps/extension" }
+    {
+      "path": "./packages/shared"
+    },
+    {
+      "path": "./packages/cdp"
+    },
+    {
+      "path": "./packages/perceiver"
+    },
+    {
+      "path": "./packages/actor"
+    },
+    {
+      "path": "./packages/policy"
+    },
+    {
+      "path": "./packages/memory"
+    },
+    {
+      "path": "./packages/codemode"
+    },
+    {
+      "path": "./packages/engine"
+    },
+    {
+      "path": "./fixtures"
+    },
+    {
+      "path": "./apps/cli"
+    },
+    {
+      "path": "./apps/desktop"
+    },
+    {
+      "path": "./apps/native-host"
+    },
+    {
+      "path": "./apps/extension"
+    }
   ]
 }

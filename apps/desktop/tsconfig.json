@@ -23,6 +23,9 @@
     },
     {
       "path": "../../packages/memory"
+    },
+    {
+      "path": "../../packages/engine"
     }
   ]
 }

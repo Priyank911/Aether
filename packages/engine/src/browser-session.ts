@@ -40,13 +40,13 @@ import {
   type ScreenshotParamsSchema,
 } from '@aether/shared';
 import type { z } from 'zod';
-import { approvalDetail, asPolicyTarget, enclosingFormFields, inCaptchaFrame } from '../run/approval.js';
-import { RunState } from '../run/run-state.js';
-import { ActionLog } from '../run/action-log.js';
+import { approvalDetail, asPolicyTarget, enclosingFormFields, inCaptchaFrame } from './run/approval.js';
+import { RunState } from './run/run-state.js';
+import { ActionLog } from './run/action-log.js';
 import { MemoryRefusedError, MemoryStore, openDatabase, RunLog, siteOf, type DatabaseHandle, type Logger } from '@aether/memory';
 import { AgentTab } from './agent-tab.js';
 import { fileConfig, type ConfigSource } from '@aether/memory';
-import { smartLanding } from '../landing/smart-landing.js';
+import { smartLanding } from './landing/smart-landing.js';
 
 const NEW_TAB_LOAD_MS = 10000;
 

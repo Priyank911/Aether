@@ -1,7 +1,7 @@
 import { waitForSettle } from '@aether/actor';
 import { classifyPage, findConsentBanner, readProductFacts, type ConsentBanner, type PageModel, type ProductFacts } from '@aether/perceiver';
 import type { CookieBannerMode, PageArchetype } from '@aether/shared';
-import type { AgentTab } from '../mcp/agent-tab.js';
+import type { AgentTab } from '../agent-tab.js';
 
 /*
  * Smart Landing (plan 3.1, section 6.1): after a page loads and before anyone

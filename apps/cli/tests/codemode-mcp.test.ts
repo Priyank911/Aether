@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
-import { MCPBrowserSession } from '../src/mcp/browser-session.js';
+import { MCPBrowserSession } from '@aether/engine';
 import { createCodeModeMcpServer, type CodeModeServer } from '../src/codemode/codemode-server.js';
 import { call, tokens } from './helpers.js';
 
