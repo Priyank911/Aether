@@ -1,8 +1,11 @@
 import { ipcMain, type WebContents } from 'electron';
 import { ShellCommandSchema, type ShellCommand, type ShellSnapshot, type ShellTab } from '@aether/shared';
 import { resolveInput } from './omnibox.js';
+import type { ShellWindow } from './shell-window.js';
 import type { SpaceManager } from './space-manager.js';
 import type { Tab } from './tab.js';
+import type { CodeModeHost } from '@aether/codemode';
+import type { DesktopSpaceEngine } from './service/desktop-engine.js';
 
 /*
  * Between the shell renderer and the main process (plan 3.1, section 10).
@@ -34,6 +37,7 @@ export function buildSnapshot(manager: SpaceManager): ShellSnapshot {
     platform: process.platform === 'darwin' ? 'darwin' : process.platform === 'linux' ? 'linux' : 'win32',
     spaces: manager.list().map((entry) => ({
       space: entry.record,
+      frame: manager.frameFor(entry.record.id),
       tabs: entry.tabs.map(shellTab),
       ...(entry.activeTabId ? { activeTabId: entry.activeTabId } : {}),
       milestones: manager.milestonesFor(entry.record.id),
@@ -46,11 +50,18 @@ export type CommandResult = { ok: true } | { ok: false; error: string };
 export class ShellBridge {
   private readonly manager: SpaceManager;
   private readonly shell: WebContents;
+  private readonly window: ShellWindow;
+  private readonly engine?: DesktopSpaceEngine;
+  private readonly codeMode?: CodeModeHost;
   private timer?: NodeJS.Timeout;
 
-  public constructor(manager: SpaceManager, shell: WebContents) {
+  public constructor(manager: SpaceManager, window: ShellWindow, engine?: DesktopSpaceEngine, codeMode?: CodeModeHost) {
+    const shell = window.shell.webContents;
     this.manager = manager;
     this.shell = shell;
+    this.window = window;
+    this.engine = engine;
+    this.codeMode = codeMode;
     ipcMain.handle('aether:command', async (event, raw: unknown): Promise<CommandResult> => {
       if (event.sender !== this.shell) return { ok: false, error: 'commands are accepted from the Aether shell only' };
       const parsed = ShellCommandSchema.safeParse(raw);
@@ -66,7 +77,11 @@ export class ShellBridge {
 
   public push(): void {
     if (this.shell.isDestroyed()) return;
-    this.shell.send('aether:snapshot', buildSnapshot(this.manager));
+    const snapshot = buildSnapshot(this.manager);
+    // The Agent bar exists only for the interim shell; the Phase 4 layout reserves its row always.
+    const shown = snapshot.spaces.find((entry) => entry.space.id === snapshot.activeSpaceId);
+    this.window.setAgentBar(Boolean(shown?.frame && shown.frame.state !== 'idle'));
+    this.shell.send('aether:snapshot', snapshot);
   }
 
   private schedule(): void {
@@ -159,11 +174,20 @@ export class ShellBridge {
       case 'find.stop':
         contents?.stopFindInPage('clearSelection');
         return { ok: true };
+      case 'run.control': {
+        if (!this.engine) return { ok: false, error: 'no agent engine' };
+        this.engine.control(command.spaceId, command.control.kind);
+        if (command.control.kind === 'stop') this.codeMode?.stop(command.spaceId);
+        return { ok: true };
+      }
+      case 'run.reply': {
+        if (!this.engine) return { ok: false, error: 'no agent engine' };
+        const accepted = this.engine.reply(command.spaceId, command.reply);
+        return accepted ? { ok: true } : { ok: false, error: 'no pending request matches this reply' };
+      }
       case 'tab.move':
       case 'panel.toggle':
       case 'overlay.layout':
-      case 'run.control':
-      case 'run.reply':
       case 'memory':
         return { ok: false, error: `${command.type} arrives with the full shell in Step 4` };
     }

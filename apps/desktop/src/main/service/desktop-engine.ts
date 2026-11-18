@@ -78,6 +78,8 @@ export class DesktopSpaceEngine implements SpaceEngine {
       }, new SpaceTabController(spaceId, this.options.manager, this.options.client));
       engine = new SessionSpaceEngine(session);
       this.engines.set(spaceId, engine);
+      // One state machine per Space drives the record, the Agent bar and the side panel.
+      session.run.onFrame((frame) => this.options.manager.setRunFrame(spaceId, frame));
     }
     return engine;
   }

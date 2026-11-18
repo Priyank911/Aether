@@ -121,4 +121,47 @@ try {
     if (report.outcome.status === 'error') expect(report.outcome.message).toContain('the person stopped this run');
     if (report.outcome.status === 'stopped') expect(report.outcome.by).toBe('person');
   }, 60000);
+
+  it('holds an irreversible step, and approving it in the interim bar releases the held run', async () => {
+    const script = `
+await space.open(${JSON.stringify(`${fixtures.mainBaseUrl}/injection.html`)});
+const found = await space.find('Delete Account', 'button');
+const result = await space.act([{ op: 'click', ref: found[0]!.ref }], { risk: 'reversible', why: 'Remove the old account' });
+return { delta: result.delta };`;
+    const first = await app.request<ExecReport>('exec', { space: 'Danger', thought: 'Delete the account', code: script });
+    expect(first.outcome.status).toBe('held');
+    const token = first.outcome.status === 'held' ? first.outcome.token : '';
+    const pending = await app.request<{ id: string; reason: string; prompt: string } | undefined>('pending', { spaceId: 'danger' });
+    expect(pending?.reason).toBe('approval');
+    expect(pending?.prompt).toContain('Delete Account');
+    // The interim Agent bar's Approve button sends exactly this command.
+    await app.request('runReply', { spaceId: 'danger', id: pending?.id, kind: 'approve' });
+    const second = await app.request<ExecReport>('exec', { space: 'Danger', thought: 'Waiting', wait: token });
+    if (second.outcome.status !== 'complete') throw new Error(`expected complete, got ${JSON.stringify(second.outcome)}`);
+    expect(second.outcome.json).toContain('ok 1/1');
+    const after = await app.request<{ id: string } | undefined>('pending', { spaceId: 'danger' });
+    expect(after ?? null).toBeNull();
+  }, 90000);
+
+  it('Take over parks the script at once and "Hand back to Aether" resumes it', async () => {
+    const running = app.request<ExecReport>('exec', {
+      space: 'Watch',
+      thought: 'Watching the page',
+      code: `await space.open(${JSON.stringify(shop)});\nfor (;;) { await space.skim(); }`,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await app.request('runControl', { spaceId: 'watch', kind: 'takeover' });
+    const pending = await app.request<{ id: string; reason: string } | undefined>('pending', { spaceId: 'watch' });
+    expect(pending?.reason).toBe('user_interrupted');
+    await app.request('runReply', { spaceId: 'watch', id: pending?.id, kind: 'resume' });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    const resumed = await app.request<{ id: string } | undefined>('pending', { spaceId: 'watch' });
+    expect(resumed ?? null).toBeNull();
+    await app.request('runControl', { spaceId: 'watch', kind: 'stop' });
+    let report = await running;
+    if (report.outcome.status === 'held') {
+      report = await app.request<ExecReport>('exec', { space: 'Watch', thought: 'Waiting', wait: report.outcome.token });
+    }
+    expect(['error', 'stopped']).toContain(report.outcome.status);
+  }, 60000);
 });

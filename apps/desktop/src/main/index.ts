@@ -79,10 +79,6 @@ function start(): void {
   protect(electronSession.fromPartition(PERSIST_PARTITION));
   protect(electronSession.defaultSession);
 
-  const bridge = new ShellBridge(manager, shellWindow.shell.webContents);
-  manager.restore();
-  bridge.push();
-
   // Code Mode over the desktop's Spaces (plan 3.2, task 3.2). Milestones from
   // the host's thought, logStep and the engine go to the Activity panel.
   const engine = new DesktopSpaceEngine({
@@ -95,6 +91,10 @@ function start(): void {
   // Tests shorten the hold time so a held run is observable in seconds.
   const holdReturnMs = Number(process.env.AETHER_HOLD_RETURN_MS) || undefined;
   const codeMode = new CodeModeHost(engine, holdReturnMs ? { holdReturnMs } : {});
+
+  const bridge = new ShellBridge(manager, shellWindow, engine, codeMode);
+  manager.restore();
+  bridge.push();
 
   const watchdog = new MemoryWatchdog(manager, memory, () => config.read().minFreeMemoryRatio);
   watchdog.start();

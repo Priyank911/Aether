@@ -12,6 +12,8 @@ import type { MainDisplay } from './space-manager.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const SHELL_HEIGHT = 76;
+/** The interim Agent bar row (plan 3.2, task 3.3); the Phase 4 layout reserves it always. */
+export const AGENT_BAR_HEIGHT = 32;
 
 export interface ShellWindowOptions {
   /** Place the window beyond every display and show it without focus: for tests. */
@@ -22,6 +24,7 @@ export class ShellWindow implements MainDisplay {
   public readonly window: BaseWindow;
   public readonly shell: WebContentsView;
   private shown?: WebContentsView;
+  private agentBar = false;
   private readonly resizeListeners: Array<(size: { width: number; height: number }) => void> = [];
 
   public constructor(options: ShellWindowOptions = {}) {
@@ -84,15 +87,27 @@ export class ShellWindow implements MainDisplay {
     return this.shown === view;
   }
 
+  /** Show or hide the interim Agent bar row; the page view gives back the space. */
+  public setAgentBar(visible: boolean): void {
+    if (this.agentBar === visible) return;
+    this.agentBar = visible;
+    this.layout();
+  }
+
   public viewportSize(): { width: number; height: number } {
     const { width, height } = this.window.getContentBounds();
-    return { width, height: Math.max(1, height - SHELL_HEIGHT) };
+    return { width, height: Math.max(1, height - this.chromeHeight()) };
+  }
+
+  private chromeHeight(): number {
+    return SHELL_HEIGHT + (this.agentBar ? AGENT_BAR_HEIGHT : 0);
   }
 
   private layout(): void {
     const { width, height } = this.window.getContentBounds();
-    this.shell.setBounds({ x: 0, y: 0, width, height: SHELL_HEIGHT });
-    const viewport = { x: 0, y: SHELL_HEIGHT, width, height: Math.max(1, height - SHELL_HEIGHT) };
+    const chrome = this.chromeHeight();
+    this.shell.setBounds({ x: 0, y: 0, width, height: chrome });
+    const viewport = { x: 0, y: chrome, width, height: Math.max(1, height - chrome) };
     if (this.shown) this.shown.setBounds(viewport);
     for (const listener of this.resizeListeners) listener({ width: viewport.width, height: viewport.height });
   }

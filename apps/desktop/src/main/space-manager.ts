@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { session as electronSession, type WebContentsView } from 'electron';
 import type { ElectronDebuggerTransport } from '@aether/cdp';
 import type { SpaceStore } from '@aether/memory';
-import { HUMAN_SPACE_ID, spaceIdFromName, type Milestone, type MilestoneStatus, type Space, type SpacePartition } from '@aether/shared';
+import { HUMAN_SPACE_ID, spaceIdFromName, type Milestone, type MilestoneStatus, type RunStateFrame, type Space, type SpaceFrame, type SpacePartition } from '@aether/shared';
 import type { AgentHost } from './agent-host.js';
 import { Tab } from './tab.js';
 
@@ -76,6 +76,8 @@ export class SpaceManager extends EventEmitter {
   private readonly closedTabs: Array<{ spaceId: string; url: string }> = [];
   private readonly milestones = new Map<string, Milestone[]>();
   private milestoneSeq = 0;
+  /** The run state machine of each Space's engine session, as the shell renders it. */
+  private readonly frames = new Map<string, SpaceFrame>();
 
   public constructor(options: SpaceManagerOptions) {
     super();
@@ -295,6 +297,34 @@ export class SpaceManager extends EventEmitter {
 
   public milestonesFor(spaceId: string): Milestone[] {
     return this.milestones.get(spaceId) ?? [];
+  }
+
+  /**
+   * The engine session's run state for this Space (plan 3.2, section 4.3).
+   * The Space record, the Agent bar and the side panel all read this one
+   * state, so they cannot disagree.
+   */
+  public setRunFrame(spaceId: string, frame: RunStateFrame): void {
+    const entry = this.spaces.get(spaceId);
+    if (!entry) return;
+    entry.record.state = frame.state;
+    const previous = this.frames.get(spaceId);
+    const startedAt = previous?.startedAt && frame.state !== 'idle' ? previous.startedAt : frame.timestamp;
+    this.frames.set(spaceId, {
+      type: 'aether.space',
+      spaceId,
+      state: frame.state,
+      step: frame.step,
+      label: frame.label.slice(0, 200),
+      ...(frame.pending ? { pending: frame.pending } : {}),
+      ...(frame.state !== 'idle' ? { startedAt } : {}),
+      timestamp: frame.timestamp,
+    });
+    this.emit('changed');
+  }
+
+  public frameFor(spaceId: string): SpaceFrame | undefined {
+    return this.frames.get(spaceId);
   }
 
   public shownTab(): Tab | undefined {

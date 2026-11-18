@@ -10,6 +10,10 @@
   const spaceEl = $('space');
   const omnibox = $('omnibox');
   const notice = $('notice');
+  const agentBar = $('agentbar');
+  const agentDot = $('agent-dot');
+  const agentLabel = $('agent-label');
+  const agentActions = $('agent-actions');
   let snapshot;
   let editing = false;
 
@@ -75,6 +79,67 @@
     $('forward').disabled = !tab?.canGoForward;
     if (!editing) omnibox.value = tab ? shownUrl(tab.url) : '';
     document.title = tab?.title ? `${tab.title} - Aether` : 'Aether';
+    renderAgentBar(entry);
+  }
+
+  /*
+   * The interim Agent bar (plan 3.2, task 3.3): the Space's run state and the
+   * fixed-copy buttons that answer it. Button labels never come from the page.
+   */
+  function renderAgentBar(entry) {
+    const frame = entry.frame;
+    const active = frame && frame.state !== 'idle';
+    agentBar.hidden = !active;
+    if (!active) {
+      agentActions.replaceChildren();
+      return;
+    }
+    const pending = frame.pending;
+    const needsPerson = Boolean(pending);
+    agentBar.classList.toggle('waiting', needsPerson);
+    agentDot.className = `dot ${needsPerson ? 'need' : 'act'}`;
+    const text = needsPerson && pending.prompt ? `Aether needs you: ${pending.prompt}` : frame.label;
+    agentLabel.textContent = text.length > 160 ? `${text.slice(0, 159)}…` : text;
+    const spaceId = entry.space.id;
+    const control = (kind) => () => void send({ type: 'run.control', spaceId, control: { type: 'aether.control', kind } });
+    const reply = (kind, replyText) => () => {
+      if (!pending) return;
+      void send({ type: 'run.reply', spaceId, reply: { type: 'aether.reply', id: pending.id, kind, ...(replyText ? { text: replyText } : {}) } });
+    };
+    const button = (label, handler, stop) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      if (stop) b.className = 'stop';
+      b.addEventListener('click', handler);
+      return b;
+    };
+    const parts = [];
+    if (pending && pending.reason === 'approval') {
+      parts.push(button('Approve', reply('approve')), button('Deny', reply('deny')));
+    } else if (pending && pending.reason === 'question') {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'Type your answer';
+      input.setAttribute('aria-label', 'Your answer');
+      const answer = () => {
+        if (!input.value.trim()) return;
+        reply('answer', input.value.trim())();
+        input.value = '';
+      };
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') answer();
+      });
+      parts.push(input, button('Send', answer));
+    } else if (pending && (pending.reason === 'must_perform' || pending.reason === 'captcha')) {
+      parts.push(button("I'm done", reply('done')));
+    } else if (pending && pending.reason === 'user_interrupted') {
+      parts.push(button('Hand back to Aether', reply('resume')));
+    } else {
+      parts.push(button('Take over', control('takeover')));
+    }
+    parts.push(button('Stop task', control('stop'), true));
+    agentActions.replaceChildren(...parts);
   }
 
   api.onSnapshot((next) => {
