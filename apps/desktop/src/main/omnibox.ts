@@ -6,7 +6,7 @@
  * the address bar in this step.
  */
 
-export const SEARCH_URL = 'https://duckduckgo.com/?q=';
+export const SEARCH_URL = 'https://www.google.com/search?q=';
 
 const HOST_LIKE = /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d{1,5})?(?:[/?#].*)?$/i;
 const LOCAL = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::\d{1,5})?(?:[/?#].*)?$/i;

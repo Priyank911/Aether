@@ -78,9 +78,16 @@ describe('Aether Desktop core (Step 2)', () => {
     const tabs = (await space(id)).tabs;
     expect(tabs.filter((tab) => tab.pid !== undefined)).toHaveLength(1);
     expect(tabs.filter((tab) => tab.state === 'hibernated')).toHaveLength(14);
-    await wait(500);
-    const stored = await app.request<{ rows: number; bytes: number }>('storeTabs', { spaceId: id });
-    expect(stored.rows).toBe(15);
+    // The store save is debounced, so wait for it instead of a fixed sleep
+    // that races under a loaded machine.
+    const stored = await until(
+      async () => {
+        const saved = await app.request<{ rows: number; bytes: number }>('storeTabs', { spaceId: id });
+        return saved.rows === 15 ? saved : undefined;
+      },
+      10000,
+      'the 15 tabs to reach the store',
+    );
     expect(stored.bytes / stored.rows).toBeLessThan(300);
   }, 30000);
 
