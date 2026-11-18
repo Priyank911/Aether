@@ -1,8 +1,41 @@
 # Aether: Agentic Browser Plan
 
-Working title: Aether. Version 3.1. Date: 2026-11-18. Status: Step 0 done (2026-11-18). Step 1 done (2026-11-18): spike S5 (Design A), Code Mode as `aether mcp --codemode`, Smart Landing with the cookie banner setting (D3). The eight 2.0 MCP tools were removed on 2026-11-18: `aether mcp` serves only the four Code Mode tools. Step 2 done (2026-11-18): Electron core in `apps/desktop` (`pnpm desktop`), Electron CDP transport, Spaces with sleeping tabs, agent host window, memory watchdog, request filter, hardening, SQLite persistence; exit tests pass. Next: Step 3. Supersedes 3.0 (draft of 2026-11-18, kept at `D:\.md\aether plan v3.md`) and 2.0 (Chrome MV3 extension and 8-tool MCP server, kept at `docs/PLAN-v2.md`). The perception, action, policy and memory packages from 2.0 are kept as the engine kernel.
+Working title: Aether. Version 3.2. Date: 2026-11-18.
 
-Baseline on 2026-11-18: 17 test files, 146 tests, all passing; `pnpm typecheck` and `pnpm lint` clean (2 pre-existing lint warnings).
+Supersedes:
+- 3.1 (same day): this file before the hands-free connection was written into the architecture and the steps became phases;
+- 3.0 (draft of 2026-11-18, kept at `D:\.md\aether plan v3.md`);
+- 2.0 (Chrome MV3 extension and 8-tool MCP server, kept at `docs/PLAN-v2.md`).
+
+The perception, action, policy and memory packages from 2.0 are kept as the engine kernel. Phases were called "Steps" in 3.1; code comments, `docs/SPIKES.md` and `docs/SETUP.md` still say "Step N", which means the same as "Phase N" here.
+
+### Progress at a glance
+
+| Phase | What it delivers | Status |
+|---|---|---|
+| 0 | Plan in the repo, v3 schemas, `FORM` landmark fix | Done 2026-11-18 |
+| 1 | Code Mode (`aether_exec`) and Smart Landing on the 2.0 engine | Done 2026-11-18 |
+| 2 | Electron core: Spaces, sleeping tabs, agent host window, watchdog, filter, hardening, SQLite | Done 2026-11-18 (24 test files, 201 tests) |
+| 3 | Hands-free connection: app service, `aether` command, `/aether` skill linked into every host, installer, Code Mode inside the app | **Next** |
+| 4 | Shell UI: the Chrome-like design, Agent bar, side panel, overlay, browser basics, Settings | Planned |
+| 5 | Chrome import and per-Space downloads | Planned |
+| 6 | Retire the extension and native host, measure v3 | Planned |
+
+Baseline before Phase 0 (2026-11-18): 17 test files, 146 tests, all passing; `pnpm typecheck` and `pnpm lint` clean (2 pre-existing lint warnings). After Phase 2: 24 test files, 201 tests, all passing; lint 0 errors, 5 pre-existing warnings.
+
+---
+
+## 0.1 The approach in 3.2 (decided 2026-11-18)
+
+These decisions were made with the person during Phases 1 and 2. They change how hosts reach Aether, not what the engine does.
+
+1. **The product is the browser app.** Aether Desktop is what the person installs and uses. Everything else (the command, the skill, the optional MCP adapter) is a thin way for a coding host to reach that app.
+2. **Hands-free, the ego lite way.** After installing, the person does nothing per host. They open Claude Code, VS Code (Copilot), Antigravity or opencode, type `/aether <task>`, and the host finds the skill, runs the `aether` command, and the agent works in the app. No `mcp.json`, no extension ID, no registry step.
+3. **Command plus skill first, MCP optional.** The connection is an `aether` command on PATH plus one skill folder linked into every host's skills directory (8.0). MCP is kept only as an adapter for hosts that have no skills and no shell tool. It is built last in Phase 3, and dropped if spike S10 shows no host the person uses needs it.
+4. **Code Mode is the only agent interface.** The eight 2.0 tools are removed (2026-11-18). Every agent step is one TypeScript script against the `space` SDK, sent as `aether exec` (or `aether_exec` over MCP). There is no flag to switch modes.
+5. **The person's preferences live in Aether, not in the agent.** The first one is `cookieBanners` (`reject` by default, `accept`, `off`; decision D3). The agent can neither read nor change settings; the Settings page in Phase 4 edits them.
+6. **No headless or direct mode for the person.** Headless Chrome stays only as the CI and evaluation transport (`--direct --headless`). The person's path is always the app.
+7. **One source for the method text.** The skill, the `aether skill` output, the MCP instructions and the `aether_exec` description are generated from the same source in `apps/cli/src/codemode/` (`instructions.ts`, `sdk-declaration.ts`), so they never disagree.
 
 ---
 
@@ -73,7 +106,7 @@ Anything that does not serve that paragraph is out of scope.
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Desktop shell | Electron (`BaseWindow` + `WebContentsView`), current stable at Step 2 | Must bundle Node >= 22.13 for `stripTypeScriptTypes` (Electron 35 or later). |
+| Desktop shell | Electron (`BaseWindow` + `WebContentsView`), current stable at Phase 2 (45.2.2) | Must bundle Node >= 22.13 for `stripTypeScriptTypes` (Electron 35 or later). |
 | Shell UI | React 19 + plain CSS with shared tokens (10.1), bundled with `vite` and `@vitejs/plugin-react` | No component library, no icon library; icons are inline SVG drawn for Aether. |
 | Tab control | In-process CDP via `webContents.debugger`, wrapped in `@aether/cdp` | Same `CDPClient` contract as 2.0. |
 | Eval and CI transport | Direct CDP to headless Chrome (`@aether/cdp` launcher) | Fixture tests without a display. |
@@ -84,14 +117,14 @@ Anything that does not serve that paragraph is out of scope.
 | Logging | `pino` | `~/.aether/aether.log`, rotated on start and by size. |
 | Storage | SQLite through `node:sqlite` (decision D2), `~/.aether/aether.db` | Built into Node and Electron; no native module. |
 | Agent reasoning | The connected host | No model SDKs or keys in Aether. |
-| Host connection | `@modelcontextprotocol/sdk` stdio shim -> one local daemon in Aether Desktop | |
+| Host connection | `aether` command (the `apps/cli` binary) plus the `/aether` skill, both talking to the app service in Aether Desktop | `@modelcontextprotocol/sdk` only for the optional `aether mcp` adapter (8.0). |
 | Chrome import | Own importer using the SQLite driver and `node:crypto` | Subject to S6. |
 | Packaging | Decision D1 | Not chosen; run from source until decided. |
-| Tests | `vitest` + `@aether/fixtures` | Electron end-to-end tests drive the app through the daemon socket and `--remote-debugging-port` on the shell (14, Step 2). |
+| Tests | `vitest` + `@aether/fixtures` | Electron end-to-end tests drive the app through the test control channel (Phase 2) and, from Phase 3, the app service. |
 | Lint | Biome (WASM runner, `scripts/lint.mjs`) | |
 | OS | Windows, Linux, macOS | Windows is the first development target, because it is the person's machine. |
 
-No other libraries. `apps/extension` and `apps/native-host` stay working until Step 6, so there is always a usable path.
+No other libraries. `apps/extension` and `apps/native-host` stay working until Phase 6, so there is always a usable path.
 
 ---
 
@@ -100,27 +133,37 @@ No other libraries. `apps/extension` and `apps/native-host` stay working until S
 ### 4.1 Components
 
 ```
-Host (Claude Code / VS Code Copilot / Cursor / Antigravity)
-  |  /aether skill or MCP instructions; shows reasoning, code and answers
-  |  MCP stdio -> `aether mcp` (stateless forwarder)
+Host (Claude Code / VS Code Copilot / Antigravity / opencode / Cursor)
+  |  /aether skill (linked into the host's skills folder); shows reasoning, code and answers
+  |  shell tool runs:  aether exec --space <name> --thought <line>  < script.ts
+  |  (optional) MCP stdio -> `aether mcp`, a stateless forwarder of the same 4 operations
   v
-Local daemon (named pipe on Windows, ~/.aether/aether.sock elsewhere; token in ~/.aether/daemon.json)
+`aether` command (apps/cli)  -- launches the app if it is not running, waits up to 15 s
+  |  one JSON frame per line; token from ~/.aether/daemon.json
+  v
+App service (named pipe \\.\pipe\aether-<user> on Windows, ~/.aether/aether.sock elsewhere)
   v
 Aether Desktop main process (Electron + Node)
-  +-- SpaceManager        Human Space + Agent Spaces, one SpaceRunState each
-  +-- TabLifecycle        live views, hibernated tabs, MemoryWatchdog, crash isolation
-  +-- SmartLanding        settle, consent banner, archetype
-  +-- CodeModeHost        sandbox per run, capability RPC for space.*
-  +-- Kernel              Perceiver | Actor | Policy | Memory | RunLog
-  +-- ShellWindow         BaseWindow with three view layers (4.4)
+  +-- ServiceServer       hello/token check, one session per client, requests -> CodeModeHost
+  +-- SpaceManager        Human Space + Agent Spaces, one SpaceRunState each        (Phase 2)
+  +-- TabLifecycle        live views, sleeping tabs, MemoryWatchdog, crash isolation (Phase 2)
+  +-- DesktopSpaceEngine  the `space.*` SDK over SpaceManager + Electron CDP         (Phase 3)
+  +-- SmartLanding        settle, consent banner per setting, archetype              (Phase 1)
+  +-- CodeModeHost        sandbox per run, capability RPC, held runs                 (Phase 1)
+  +-- Kernel              Perceiver | Actor | Policy | Memory | RunLog               (2.0)
+  +-- ShellWindow         BaseWindow with three view layers (4.4)                    (Phase 2, UI in Phase 4)
+  +-- AgentHost           off-screen BaseWindow for background Agent tabs            (Phase 2)
 ```
 
-### 4.2 Single-instance daemon
+### 4.2 Single-instance app service
 
-1. Aether Desktop owns the only daemon. It uses `app.requestSingleInstanceLock()` so a second launch focuses the first window.
-2. `aether mcp` is a stateless stdio-to-daemon forwarder. If the daemon is absent, it starts Aether Desktop, waits up to 15 s for the socket, then forwards. Nothing is printed to stdout except JSON-RPC (the 2.0 launch test is kept).
-3. Every connection authenticates with the token from `~/.aether/daemon.json`, which is readable only by the owner. Each host session gets its own Agent Space, and sessions never disconnect each other.
-4. `aether mcp --direct --headless` keeps the 2.0 headless Chrome path for CI and the Step 1 trial.
+1. Aether Desktop owns the only service. It uses `app.requestSingleInstanceLock()`, so a second launch focuses the first window (built in Phase 2).
+2. On start the app listens on the endpoint and writes `~/.aether/daemon.json` (`DaemonConfigSchema` in `packages/shared/src/daemon.ts`): protocol version, pid, endpoint, a random 32-byte token, app version, start time. On Windows the file gets an ACL for the current user only; elsewhere mode `0600`. It is removed on a clean exit. A stale file (dead pid) is replaced by the next start.
+3. Frames: the client's first frame is `hello` with the token; the service answers `welcome` with a session id, or `fatal` (`bad_token`, `protocol`) and closes. Then `request {id, tool, params}` and `response {id, result}`, where `result` is the same `ToolResult` both connectors render. Requests on one connection may overlap; responses carry the id.
+4. Sessions: each connection is one session. A session's Agent Spaces are named by the host (`--space`); two sessions that name the same Space share it, and calls on one Space are serialized (7.2). Sessions never disconnect each other. A held run belongs to its Space, not to the connection, so `aether wait <token>` works from a new process.
+5. The `aether` command and `aether mcp` are both clients. Neither keeps state between runs. Nothing but JSON-RPC is printed to stdout by `aether mcp` (the 2.0 launch test is kept).
+6. `aether mcp --direct --headless` keeps the headless Chrome engine for CI and evaluations. It never touches the person's profile.
+7. Until Phase 6 removes it, the Chrome extension path stays reachable as `aether mcp --extension`, so there is always a working path while the app matures.
 
 ### 4.3 Space state machine
 
@@ -155,6 +198,16 @@ A `BaseWindow` holds three view layers, bottom to top:
    - Omnibox suggestions, the Space switcher menu, and toasts, while open.
 
 When no overlay is needed, the view is removed and the page gets input directly. Overlay content never appears in `capturePage` of the tab, so screenshots stay clean. Native `Menu.popup` is used for the main menu and the page context menu.
+
+### 4.5 End to end: one task from the editor to the app
+
+1. The person types `/aether find a waterproof watch under 3000 with at least 4 stars` in their editor.
+2. The host loads `~/.claude/skills/aether/SKILL.md` (or the matching folder for that host). The skill tells it to run `aether skill` once, which prints the working method and the `space` SDK declaration for the installed version.
+3. The host writes one script and runs `aether exec --space "Watch hunt" --thought "Searching three shops" < script.ts` through its shell tool.
+4. `aether` reads `daemon.json`. If the app is not running it starts it (minimised to nothing new for the person: the window opens only if it was closed) and waits for the service.
+5. The service creates the Agent Space "Watch hunt". The script runs in the sandbox. Each `space.*` call goes through Policy, then to the Space's tabs in the agent host window. The person keeps browsing in Personal; the Space chip shows a blue dot.
+6. If the script hits an approval, the Space turns amber, the decision card opens, and the call waits. After 50 s the command prints `held: <token>` and exits with code 2; the host runs `aether wait <token>` to keep waiting.
+7. The script returns a shortlist. `aether` prints the result text (page data wrapped untrusted) and exits 0. The host answers the person and calls `aether done`, which ends the run, writes the RunLog and turns the frame off.
 
 ---
 
@@ -198,7 +251,7 @@ When no overlay is needed, the view is removed and the page gets input directly.
    - any Space's active tab (the one its agent works in);
    - a tab woken less than 30 s ago, so a page an agent just opened is read before it can sleep.
 
-   Found in Step 2 testing: without these exceptions, real memory pressure put a just-opened agent tab to sleep before the agent read it.
+   Found in Phase 2 testing: without these exceptions, real memory pressure put a just-opened agent tab to sleep before the agent read it.
 7. **Crash isolation**: on `render-process-gone`, only that tab becomes `crashed`. The SDK call on it rejects with a recoverable error, and the tab shows the crashed page (10.6).
 
 ---
@@ -210,7 +263,7 @@ When no overlay is needed, the view is removed and the page gets input directly.
 Every navigation runs these steps before returning:
 
 1. **Settle**: main-frame DOM ready, then network quiet or a stable AX structure hash. Target 250 ms after load; hard cap 2.5 s.
-2. **Consent banner** (decision D3, 2026-11-18): the person's **Cookie banners** setting, `cookieBanners` in `~/.aether/config.json`, edited later on the Settings page in Step 4. Only the person can change it.
+2. **Consent banner** (decision D3, 2026-11-18): the person's **Cookie banners** setting, `cookieBanners` in `~/.aether/config.json`, edited later on the Settings page in Phase 4. Only the person can change it.
    - **What counts as a banner:**
      - Any banner in view whose buttons use a consent phrase, with cookie or consent text in the same region or within 10 lines. It does not have to cover the page.
      - A region that holds an input field never counts, so login, paywall and form dialogs are never touched.
@@ -234,7 +287,7 @@ Every navigation runs these steps before returning:
 | Find | `space.find(query, role?)` | ranked list |
 | Delta | returned by `space.act()` | |
 
-`ProductGraphMatcher` scoring must be written down in `docs/PERCEPTION.md` before Step 1 ends. 3.0 calls it "Jaccard centrality" without a definition.
+`ProductGraphMatcher` scoring must be written down in `docs/PERCEPTION.md`. 3.0 calls it "Jaccard centrality" without a definition. This was due in Phase 1 and was not done; it is carried into Phase 3 (task 3.11).
 
 ---
 
@@ -337,25 +390,38 @@ The product is the Aether browser app. Hosts reach it the way ego lite's are rea
 
 Nothing has to be configured per host.
 
-1. **Installer** (Step 3; packaging per D1). It installs the app and puts `aether` on PATH. It links one skill folder (`skills/aether`, shipped with the app) into:
-   - `~/.claude/skills/aether`
-   - `~/.agents/skills/aether`
-   - `~/.gemini/config/skills/aether`
-   - `~/.gemini/antigravity-cli/skills/aether`
-   - `~/.config/opencode/skills/aether`
+1. **Installer** (Phase 3; packaging per D1). It installs the app and puts `aether` on PATH. It links one skill folder (`skills/aether`, shipped with the app) into every host's skills directory:
 
-   On Windows these are directory junctions, which need no admin rights. `aether install-skill` repeats this step and `aether uninstall-skill` removes the links. A folder of the same name that is not Aether's link is left alone and reported.
-2. **Skill**. `SKILL.md` is a short bootstrap: run `aether skill`, which prints the usage guide and SDK declaration for the installed version, so an app update updates every host.
-3. **Command**. These are the same four operations as the tools in 8.1, over the daemon:
+   | Host | Link |
+   |---|---|
+   | Claude Code | `~/.claude/skills/aether` |
+   | VS Code (Copilot agent skills) | `~/.copilot/skills/aether` and `~/.agents/skills/aether` |
+   | Antigravity | `~/.gemini/config/skills/aether` and `~/.gemini/antigravity-cli/skills/aether` |
+   | opencode | `~/.config/opencode/skills/aether` |
+
+   - On Windows these are directory junctions, which need no admin rights; elsewhere symlinks.
+   - A host's parent folder that does not exist is skipped and reported, not created, so Aether never invents a config tree for a host that is not installed.
+   - A folder named `aether` that is not Aether's own link is left alone and reported.
+   - `aether install-skill` repeats this step (after a host is installed later); `aether uninstall-skill` removes only Aether's links.
+2. **Skill**. `SKILL.md` is a short bootstrap (under 1,500 characters): when to use Aether, then "run `aether skill` and follow it". `aether skill` prints the working method (8.2) and the SDK declaration (7.2) for the installed version, so an app update updates every host with no relinking.
+3. **Command**. The same four operations as the tools in 8.1, over the app service, plus housekeeping:
 
    | Command | Operation |
    |---|---|
-   | `aether exec --space <name> --thought <line> --file <script.ts>` (or the script on stdin) | `aether_exec` |
+   | `aether exec --space <name> --thought <line> [--file <script.ts>]` (script on stdin when no `--file`) | `aether_exec` |
    | `aether wait <token>` | `aether_exec` with `wait` |
-   | `aether screenshot`, `aether spaces`, `aether done` | the other three |
+   | `aether screenshot --space <name> [--ref <ref>] [--out <file.png>]` | `aether_screenshot`; prints the PNG path |
+   | `aether spaces [list \| focus <name> \| close <name>]` | `aether_spaces` |
+   | `aether done --space <name> --success <yes\|no> --result <text> [--evidence <text>]` | `aether_done` |
+   | `aether skill` | prints the method and SDK declaration |
+   | `aether install-skill`, `aether uninstall-skill` | manage the host links |
+   | `aether status` | is the app running, which Spaces are busy |
+   | `aether doctor` | checks the install, PATH, every link, the service and the app version |
 
-   Output is the same text the MCP tool returns. A screenshot is written to a file whose path is printed.
-4. **MCP** (`aether mcp`). An optional thin adapter over the same daemon, for hosts with no skills or no shell tool. It is built last in Step 3, and dropped if S10 shows every host the person uses works with the command and skill.
+   - Output is the same text the MCP tool returns, so the method text reads the same in both.
+   - Exit codes: `0` done, `1` the script failed (error text printed), `2` held (token printed), `3` the app could not be started or reached, `4` bad usage.
+   - The command starts the app when it is not running and waits up to 15 s for the service; it never opens a second app.
+4. **MCP** (`aether mcp`). An optional thin adapter over the same service, for hosts with no skills or no shell tool. It is built last in Phase 3, and dropped if S10 shows every host the person uses works with the command and skill.
 
 ### 8.1 Four operations (as MCP tools: definitions under 450 tokens, excluding the SDK text in the `aether_exec` description)
 
@@ -368,11 +434,11 @@ Nothing has to be configured per host.
 
 ### 8.2 The working method, in three places
 
-1. `skills/aether/SKILL.md`, installed by `aether install-skill` to:
-   - `~/.claude/skills/aether/` (Claude Code);
-   - the Antigravity skills folder.
-2. MCP server `instructions`, for VS Code Copilot and other hosts without skills. The 2.0 text in `apps/cli/src/mcp/instructions.ts` is extended for Code Mode.
-3. The `aether_exec` description, which holds the SDK declaration.
+1. `aether skill`, reached from `skills/aether/SKILL.md` in every host listed in 8.0.
+2. MCP server `instructions`, for hosts that use the optional adapter. Generated from `apps/cli/src/codemode/instructions.ts`.
+3. The `aether_exec` description, which holds the SDK declaration (`apps/cli/src/codemode/sdk-declaration.ts`).
+
+A test checks that all three contain the same method rules and the same SDK text.
 
 The method has six rules:
 - Restate the criteria.
@@ -460,7 +526,7 @@ Principle: it should look and behave like a quiet Chrome. Agent work shows in ex
 
 ### 10.1 Design tokens (`apps/desktop/renderer/tokens.css`)
 
-Ratios are measured against `--surface` (`scripts/check-contrast.mts` in Step 4 recomputes them). All colours, sizes and durations come from these tokens. Hard-coded values in component CSS fail lint review.
+Ratios are measured against `--surface` (`scripts/check-contrast.mts` in Phase 4 recomputes them). All colours, sizes and durations come from these tokens. Hard-coded values in component CSS fail lint review.
 
 **Colour, light theme / dark theme**
 
@@ -610,7 +676,7 @@ Rules: verbs on buttons, plain words, the same term for the same thing everywher
   - The decision card is a `dialog` that does not trap focus, and moves focus to its primary button when it appears.
 - **Motion**: `prefers-reduced-motion` turns off the pulse and the ghost-cursor glide.
 - **Zoom**: the shell works at 200 % shell zoom without horizontal scrolling at 1280 px window width.
-- **Exit check** for Step 4: a keyboard-only run and an NVDA (Windows screen reader) pass over the decision card flow, recorded in `docs/A11Y.md`.
+- **Exit check** for Phase 4: a keyboard-only run and an NVDA (Windows screen reader) pass over the decision card flow, recorded in `docs/A11Y.md`.
 
 ### 10.6 Browser basics (Electron hook)
 
@@ -691,112 +757,187 @@ Recorded in `docs/METRICS.md`:
 | `packages/policy` | Keep. Add `blocklist.ts`, batch URL approval, and the external protocol rule. |
 | `packages/memory` | Keep. Add `spaces`, `tabs` and `space_state` tables; driver per D2. |
 | `packages/shared` | Extend. Zod schemas for Spaces, tab records, milestones, daemon frames, Code Mode RPC, the 4 tools, shell IPC. |
-| `packages/codemode` | New. Transpiler, sandbox per S5, stall watchdog, RPC host and client, return guard. |
-| `apps/desktop` | New. `main/` (SpaceManager, TabLifecycle, MemoryWatchdog, ChromeImporter, daemon), `preload/`, `renderer/` (shell UI), `overlay/` (Shell Overlay view). |
-| `apps/cli` | `aether mcp` forwards to the daemon; `--direct --headless` keeps the 2.0 engine for CI; `aether doctor` checks Electron, the daemon and the skill install; `aether install-skill`. |
-| `skills/aether` | New. `SKILL.md`. |
-| `apps/extension`, `apps/native-host` | Delete in Step 6, after `apps/desktop` passes every end-to-end task. |
+| `packages/codemode` | New (Phase 1, done). Transpiler, sandbox per S5, stall watchdog, RPC host, return guard. |
+| `packages/engine` | New in Phase 3. The engine pieces now in `apps/cli` that both the app and the CLI need: `mcp/browser-session.ts`, `landing/smart-landing.ts`, `codemode/session-engine.ts`, `codemode/render-report.ts`. Moved, not rewritten, so the Phase 1 tests keep passing unchanged. |
+| `apps/desktop` | New (Phase 2, done): `main/` (SpaceManager, Tab, AgentHost, MemoryWatchdog, concurrency, request filter, hardening, ShellBridge), `preload/`, interim `static/` shell. Phase 3 adds `main/service/` (service server, DesktopSpaceEngine, held runs). Phase 4 replaces `static/` with `renderer/` (React shell) and `overlay/` (Shell Overlay view). Phase 5 adds `main/import/` (ChromeImporter) and downloads. |
+| `apps/cli` | The `aether` command: `exec`, `wait`, `screenshot`, `spaces`, `done`, `skill`, `install-skill`, `uninstall-skill`, `status`, `doctor`, and the optional `mcp` adapter. `--direct --headless` keeps the headless engine for CI. |
+| `skills/aether` | New in Phase 3. `SKILL.md` (bootstrap only). |
+| `apps/extension`, `apps/native-host` | Delete in Phase 6, after `apps/desktop` passes every end-to-end task. |
 
 ---
 
-## 14. Steps and spikes
+## 14. Phases and spikes
 
-Work one step at a time, in order. After each, run `pnpm typecheck`, `pnpm lint` and `pnpm test`, and do not start the next step until all pass. Record each spike in `docs/SPIKES.md`.
+Work one phase at a time, in order, and one task at a time inside a phase. After each task, run `pnpm typecheck`, `pnpm lint` and `pnpm test`, and do not start the next task until all pass (AGENTS.md rule 7). Record each spike in `docs/SPIKES.md`. Each phase ends with its exit tests passing twice in a row and a report in the AGENTS.md format.
 
 ### Spikes
 
-| Id | Question | Blocks |
-|---|---|---|
-| S5 | Sandbox. Does worker plus `vm` (with `codeGeneration` off and frozen intrinsics) resist the known escape classes? Same question for a sandboxed hidden renderer. Also: does `worker.terminate()` stop `while (true) {}`, and does a `space.*` round trip take under 10 ms in each? | Step 1 |
-| S6 | Chrome import. Cookie decryption on Windows (v10 vs v20 App-Bound), macOS and Linux. Bookmarks and history. Google and one bank: does sign-in work inside Electron with the Chrome user agent? | Step 5 |
-| S7 | Electron CDP and views. Does `webContents.debugger` auto-attach to cross-origin iframes like Chrome? Do lazy loading and `IntersectionObserver` fire in a view that is not shown, with `backgroundThrottling: false` and real bounds? Memory freed when a view is destroyed, and per-page memory for the concurrency formula. | Step 2 |
-| S8 | Shell Overlay view. Does a transparent view block the person's mouse and keys over a tab while engine CDP input still reaches the page? Is it absent from `capturePage`? Is input passed through at once when the view is removed? Can omnibox suggestions render in it without focus loss? | Step 2 |
-| S9 | SQLite in Electron. `node:sqlite` in Electron's Node: does the API cover the 2.0 memory store, and what does performance look like? Versus `better-sqlite3` rebuilt with `@electron/rebuild`. Feeds decision D2. | Step 2 |
-| S10 | Host protocol support. For VS Code Copilot, Claude Code, Cursor and Antigravity, record: the protocol era each sends; whether it reads server `instructions`; whether it declares the Tasks, Skills or elicitation capabilities; and how long it waits on a tool call before timing out. Method: log the raw requests the 2.0 server receives. | Step 3 |
+| Id | Question | Blocks | Status |
+|---|---|---|---|
+| S5 | Sandbox. Does worker plus `vm` (with `codeGeneration` off and frozen intrinsics) resist the known escape classes? Same question for a sandboxed hidden renderer. Also: does `worker.terminate()` stop `while (true) {}`, and does a `space.*` round trip take under 10 ms in each? | Phase 1 | Done: Design A |
+| S6 | Chrome import. Cookie decryption on Windows (v10 vs v20 App-Bound), macOS and Linux. Bookmarks and history. Google and one bank: does sign-in work inside Electron with the Chrome user agent? | Phase 5 | Open |
+| S7 | Electron CDP and views. Auto-attach to cross-origin iframes; lazy loading and `IntersectionObserver` in a view that is not shown; memory freed on destroy; per-page memory. | Phase 2 | Done: agent host window, plus the occlusion addendum |
+| S8 | Shell Overlay view. Does a transparent view block the person's input over a tab while engine CDP input still reaches the page? Absent from `capturePage`? Input passed through at once when removed? | Phase 2 | Done: works; omnibox focus inside the overlay is left to Phase 4 |
+| S9 | SQLite in Electron: `node:sqlite` vs `better-sqlite3` rebuilt. Feeds D2. | Phase 2 | Done: `node:sqlite` |
+| S10 | Host support. For Claude Code, VS Code Copilot, Antigravity, opencode and Cursor, record: does it load a skill from the linked folder; does `/aether` trigger it; can its shell tool run `aether exec` with a script on stdin; how long does it let a shell command run before cutting it off; which MCP era and capabilities (Tasks, Skills, elicitation) it declares, for the optional adapter. Method: a probe skill that logs each invocation, and the request log of the MCP adapter. | Phase 3 | Open |
 
-### Steps
+### Phase 0. Baseline and v3 schemas (done 2026-11-18)
 
-**Step 0. Baseline and v3 schemas.**
-- Move the plan into `docs/PLAN.md` (this file). Archive 2.0.
-- Add `FORM` tag landmark mapping in the perceiver, with a fixture that has an unnamed `<form>`.
-- Zod schemas in `packages/shared` for: Spaces, tab records, milestones, Code Mode RPC, the 4 tools, daemon frames, shell IPC.
-- Exit: all checks pass; the schemas have round-trip tests.
+- The plan moved into `docs/PLAN.md`; 2.0 archived at `docs/PLAN-v2.md`.
+- `FORM` tag landmark mapping in the perceiver, with an unnamed-form fixture.
+- Zod schemas in `packages/shared`: Spaces, tab records, milestones (`spaces.ts`); Code Mode RPC (`codemode.ts`); the 4 tools (`host-tools.ts`); service frames (`daemon.ts`); shell IPC (`shell-ipc.ts`); settings (`config.ts`).
+- Exit met: all checks pass; schema round-trip tests in `tests/schemas-v3.test.ts`.
 
-**Step 1. Code Mode and Smart Landing on the current engine.**
-- Run S5 and record the decision.
-- Build `packages/codemode`:
-  - transpile;
-  - sandbox;
-  - stall watchdog;
-  - cancel on Take over and Stop;
-  - return guard;
-  - untrusted wrapping;
-  - `space.*` over an adapter for the 2.0 `BrowserSession`.
-- Add Smart Landing and the archetype tagger, tested on new fixtures: a consent banner with reject and accept, a consent banner with accept only, a login dialog (must not be dismissed).
-- Expose `aether_exec` and `aether_done` on the existing MCP server behind `aether mcp --codemode`. The person can then try Code Mode from VS Code with the 2.0 extension before any Electron work.
-- Exit:
-  - Security tests show the escape attempts fail.
-  - `while (true) {}` is stopped and a 2-minute active script is not.
-  - Structured returns arrive whole.
-  - A script cannot exfiltrate through `open`.
-  - One `aether_exec` harvests the 2-page fixture shop, filters, maps 3 product pages, and returns a shortlist.
+### Phase 1. Code Mode and Smart Landing on the 2.0 engine (done 2026-11-18)
 
-**Step 2. Electron core.**
-- Run S7, S8 and S9. Decide D2.
-- Add `ElectronDebuggerTransport`.
-- Build `apps/desktop/main`:
-  - BaseWindow with the three layers;
-  - SpaceManager;
-  - TabLifecycle (live views, sleeping tabs, `mapPages` pool, request filter, MemoryWatchdog, crash isolation);
-  - `config.json`;
-  - SQLite Space and tab tables;
-  - log rotation;
-  - Electron hardening (9.7).
-- Add a test driver: Electron launched with a test flag exposes the daemon socket and `--remote-debugging-port` for the shell.
-- Exit:
-  - 15 tabs via `openTabs` leave unviewed tabs sleeping with metadata in SQLite.
-  - Concurrency rises with free memory and drops under simulated pressure.
-  - Deleting a Space keeps cookies and clears caches.
-  - Killing one renderer leaves the app and the Space running.
+Built:
+- `packages/codemode`: `transpile.ts` (type stripping plus a syntax check), `sandbox.ts` and `worker-source.ts` (worker plus `vm`, frozen intrinsics, closure-only bridges, a `ready` handshake), `codemode-host.ts` (exec, wait, stop, per-Space serialization, held runs), `return-guard.ts`, `call-error.ts`.
+- `apps/cli/src/codemode/`: `session-engine.ts` (the `space` SDK over the 2.0 `BrowserSession`), `codemode-server.ts` (the 4 tools, definitions under 450 tokens), `sdk-declaration.ts`, `instructions.ts`, `render-report.ts`.
+- Smart Landing (`apps/cli/src/landing/smart-landing.ts`, `packages/perceiver/src/landing/`): settle, consent banner per `cookieBanners`, archetype.
+- `wrapUntrustedOrigins` in Policy for multi-origin returns.
 
-**Step 3. Daemon, command, skill and installer.** (Before UI polish, so a real host drives Electron from here on.)
-- The daemon in `apps/desktop` (named pipe or socket plus token), with concurrent sessions.
-- The `aether` command (`exec`, `wait`, `screenshot`, `spaces`, `done`, `skill`, `install-skill`, `uninstall-skill`, `doctor`). It auto-launches the app.
-- The skill links for all hosts (8.0) and the installer (D1).
-- Last, and only if S10 needs it: `aether mcp` forwarding the same 4 operations.
-- `skills/aether/SKILL.md` and the MCP instructions, under 1,500 characters.
-- Run S10. Use the Tasks extension and Skills over MCP for hosts that declare them, and the `wait` token and installed skill otherwise (8.3).
-- Exit:
-  - Two concurrent clients get two Agent Spaces in one app with no conflicts.
-  - VS Code Copilot and Claude Code both complete the fixture shop task through `aether_exec`.
+Changed from 3.1 during the phase:
+- The eight 2.0 MCP tools were removed. `aether mcp` serves only the four Code Mode tools; `--codemode` is accepted and ignored.
+- The cookie banner rule became the person's setting (D3).
+- The stall clock starts only after the worker reports ready, so a slow machine does not stop a script that has not started.
 
-**Step 4. Shell UI.**
-- `tokens.css` per 10.1 and the contrast check script.
-- Build the layout in 10.2:
-  - tab strip, Space switcher, toolbar and omnibox, Agent bar, side panel (Activity, Memory), decision and approval cards;
-  - in the Shell Overlay view: the shield, ghost cursor, omnibox suggestions and find bar;
-  - the browser basics in 10.6.
-- Copy exactly per 10.4. No chat box and no code block anywhere.
-- Exit:
-  1. An end-to-end test shows the Human Space untouched while an Agent Space runs blue.
-  2. Person clicks in the Agent Space are blocked while acting.
-  3. Milestones appear in Activity.
-  4. An irreversible fixture turns the Space amber with an approval card.
-  5. Take over and "Hand back to Aether" work.
-  6. The keyboard and NVDA checks in 10.5 are recorded.
+Not done, carried forward: `docs/PERCEPTION.md` (6.2), moved to Phase 3 task 3.11.
 
-**Step 5. Chrome import and Space downloads.**
-- Run S6.
-- Build `ChromeImporter`: bookmarks, history, decryptable cookies, temp copies removed in `finally`, and a report of what was skipped. Set the user agent and client hints.
-- Space download folders with the free-disk check, removed only when the Space is deleted.
-- Exit:
-  - Importing a fixture profile fills bookmarks and cookies and leaves no temp files.
-  - Deleting a Space removes its folder after confirmation.
+Exit met: escape attempts fail; `while (true) {}` stops and a 2-minute working script does not; structured returns arrive whole; a script cannot exfiltrate through `open`; one `aether_exec` harvests the 2-page fixture shop, maps 3 product pages and returns a shortlist.
 
-**Step 6. Retire 2.0 and record v3 metrics.**
-- Delete `apps/extension` and `apps/native-host`. Update `README.md` and `docs/SETUP.md`.
-- Run the benchmarks: multi-page shopping, 10-tab fan-out, form, handoff. Record the section 12 metrics.
-- Exit: all checks pass; metrics committed.
+### Phase 2. Electron core (done 2026-11-18)
+
+Built (`apps/desktop`, run with `pnpm desktop`):
+- `ElectronDebuggerTransport` in `packages/cdp`: each agent tab is a root session `tab-<id>`; auto-attached frames route to their tab; Human tabs are never registered.
+- `SpaceManager`, `Tab`, `AgentHost` (off-screen window for background Agent tabs), `ShellWindow` and `ShellBridge`, `MemoryWatchdog`, `concurrency.ts` (slots from free memory and cores), `request-filter.ts`, `hardening.ts`, `omnibox.ts`.
+- SQLite through `node:sqlite`: `spaces`, `tabs` and `space_state` tables, `SpaceStore`; `config-file.ts` moved into `packages/memory`.
+- A test control channel (`AETHER_TEST_CONTROL`), used only by the exit tests.
+
+Deviations, each recorded with its reason:
+- **Watchdog exemptions**: the shown tab, every Space's active tab, and tabs woken in the last 30 s are never put to sleep (5.2).
+- **Occlusion switches**: `CalculateNativeWinOcclusion` disabled and `disable-backgrounding-occluded-windows`, so the off-screen host keeps rendering (S7 addendum).
+- **Test control instead of `--remote-debugging-port`**: a loopback socket with a token, started only by the test flag. The app service replaces it for real clients in Phase 3; the exit tests then move to the service where they can.
+- **Interim shell**: a plain tab strip and address bar in `static/`, using the 10.1 tokens. Shortcuts work only while the toolbar has focus. Phase 4 replaces it.
+- **Not built in Phase 2, moved**: the Shell Overlay view (Phase 4, S8 already proved it), log rotation (Phase 3, task 3.9), downloads (refused until Phase 5).
+
+Exit met: 15 lazy tabs leave 14 asleep at under 300 bytes each; concurrency follows free memory and pressure puts background tabs to sleep; deleting a Space clears caches and keeps cookies; a crashed renderer affects only its tab; background Agent tabs render and lazy-load; Human tabs are never debugged; Spaces restore asleep after a restart.
+
+### Phase 3. Hands-free connection (next)
+
+Goal: the person installs Aether once, then types `/aether <task>` in Claude Code, VS Code, Antigravity or opencode and watches the agent work in the app. No per-host setup.
+
+Tasks, in order:
+
+**3.1 Move the engine into `packages/engine`.**
+- Move `apps/cli/src/mcp/browser-session.ts`, `apps/cli/src/landing/`, `apps/cli/src/codemode/session-engine.ts` and `render-report.ts` into a new workspace package `@aether/engine`. Imports only; no behaviour change.
+- `apps/cli` and `apps/desktop` both depend on it.
+- Done when: every existing test passes unchanged.
+
+**3.2 `DesktopSpaceEngine`.**
+- Implements `SpaceEngine` (`packages/codemode/src/codemode-host.ts`) over `SpaceManager` and the Electron transport, in `apps/desktop/src/main/service/desktop-engine.ts`.
+- `open`, `skim`, `focus`, `text`, `items`, `survey`, `find`, `act` reuse the engine's per-tab perception and action code on a `CDPSession` for the tab.
+- `openTabs` and `switchTab` use `SpaceManager.openTabs` and `activateTab`. `mapPages` takes slots from `pageSlots`, wakes each page, runs `fn`, then lets the tab sleep.
+- Smart Landing runs on every navigation with the live `cookieBanners` setting.
+- Milestones from `logStep` and `thought` go to the Space record and the shell (`ShellBridge`).
+- Done when: the Phase 1 Code Mode fixture tests run against the app as well as against headless Chrome, through a shared test table.
+
+**3.3 Run state and held runs inside the app.**
+- One `SpaceRunState` per Space (4.3): `idle`, `acting`, `waiting_human` with its reason, `resuming`, `done`.
+- Approvals, questions and Take over park the sandbox at the call. Until the Phase 4 cards exist, the interim shell shows a plain bar with the reason and Approve, Deny, Take over and Stop buttons, so the flow can be tested end to end now.
+- Held results are kept 10 minutes, keyed by token, owned by the Space.
+- Done when: an irreversible fixture holds, returns `held: <token>` after 50 s (shortened by a test setting), and `wait` returns the result after approval.
+
+**3.4 App service.**
+- `apps/desktop/src/main/service/`: `server.ts` (named pipe or socket, frames per `daemon.ts`), `sessions.ts`, `service-file.ts` (writes and removes `daemon.json`, owner-only).
+- Every frame is validated with zod. A bad token or frame gets `fatal` and the connection closes. Lines over 8 MB are refused.
+- On quit: stop accepting, stop running scripts with "the app is closing", remove `daemon.json`.
+- Done when: two clients in parallel get two Spaces with no interference; a wrong token is refused; a stale `daemon.json` is replaced.
+
+**3.5 The `aether` command.**
+- `apps/cli/src/commands/`: one file per command in 8.0, plus `service-client.ts` (connect, hello, request) and `launch-app.ts`.
+- `launch-app.ts` finds the app (installed location, else the source checkout), starts it detached, waits up to 15 s for `daemon.json` and the endpoint, and never starts a second copy (the single-instance lock covers races).
+- Script input from `--file` or stdin; output and exit codes per 8.0; screenshots written under `~/.aether/screenshots/` unless `--out`.
+- Done when: `aether exec` runs the fixture shop task from a cold start, and every exit code has a test.
+
+**3.6 Skill and method text.**
+- `skills/aether/SKILL.md`: front matter (`name: aether`, a description that names browsing tasks), then when to use it and "run `aether skill`". Under 1,500 characters.
+- `aether skill` prints the method (8.2) and the SDK declaration (7.2) from the existing sources.
+- Done when: the consistency test in 8.2 passes.
+
+**3.7 Host links.**
+- `apps/cli/src/install/skill-links.ts`: the table in 8.0; junction on Windows, symlink elsewhere; skip a missing host folder; never replace a folder that is not Aether's link; report each target.
+- `install-skill`, `uninstall-skill` and the link checks in `doctor` use it.
+- Done when: tests over a temp home cover create, repeat (no change), foreign folder (left alone), missing host (skipped) and uninstall (only Aether's links removed).
+
+**3.8 `aether` on PATH and the installer (needs D1).**
+- From source (works before D1): `pnpm aether:install` builds, writes a shim (`%LOCALAPPDATA%\Aether\bin\aether.cmd` on Windows, `~/.local/bin/aether` elsewhere) that runs `node <checkout>/apps/cli/dist/index.js`, adds the folder to the user PATH (HKCU, no admin), then runs `install-skill`. `pnpm aether:uninstall` reverses all of it.
+- Packaged (after D1): the installer puts the app and the same shim in place and runs the same `install-skill`. The uninstaller runs `uninstall-skill`.
+- Done when: on a clean Windows user profile, after install, a new terminal finds `aether` and `aether doctor` reports every check green.
+
+**3.9 Log rotation.**
+- `~/.aether/aether.log` rotates at start and at 10 MB (configurable), keeping 3 files. App and CLI share it, one JSON line per event, with the process name.
+
+**3.10 Spike S10 and the optional MCP adapter.**
+- Run S10 against each host the person uses.
+- If any host needs MCP: `aether mcp` forwards the 4 tools to the service (no engine inside), serves the method as `instructions`, uses Tasks and Skills over MCP when declared (8.3). Otherwise record that the adapter is not built.
+
+**3.11 Docs.**
+- `docs/SETUP.md` rewritten around install, `/aether` and `aether doctor`. The extension sections move under "Legacy (until Phase 6)".
+- `docs/PERCEPTION.md`: the `ProductGraphMatcher` scoring as implemented in `packages/perceiver/src/graph-matcher.ts`, carried over from Phase 1.
+
+Exit tests for Phase 3:
+1. Two `aether exec` processes at once get two Agent Spaces in one app with no conflicts.
+2. From a cold start (app not running), `aether exec` starts the app and completes the fixture shop task.
+3. An irreversible step holds; `aether wait <token>` returns after approval in the interim bar; Stop ends the script at once.
+4. `install-skill` and `uninstall-skill` pass their temp-home tests; `doctor` reports a broken link.
+5. Manual, recorded in `docs/SPIKES.md` under S10: Claude Code and VS Code each complete the fixture shop task by `/aether`, with no per-host setup.
+6. The Human Space is never debugged during any of the above (the Phase 2 check, repeated through the service).
+
+### Phase 4. Shell UI
+
+Goal: a quiet, Chrome-like browser that shows agent work in exactly three places: the frame, the Agent bar and the side panel. Built with React 19 and plain CSS tokens (section 10). Uses the design-system, ux-copy and accessibility-review guidance already written into 10.1 to 10.5.
+
+Tasks, in order:
+1. **Renderer setup**: `apps/desktop/renderer` with vite and `@vitejs/plugin-react`; strict CSP; typed preload IPC from `shell-ipc.ts`. `tokens.css` per 10.1 and `scripts/check-contrast.mts` in the test run.
+2. **Tab strip and Space switcher**: tabs with every state in 10.3 (sleeping, crashed, loading, audible); drag to reorder; middle click closes; the Space chip and its menu; Windows `titleBarOverlay`.
+3. **Toolbar and omnibox**: back, forward, reload, the omnibox (host at rest, full URL on focus), the agent indicator, side panel toggle, main menu. Suggestions draw in the Shell Overlay view while keyboard focus stays in the omnibox (the open S8 item).
+4. **Shortcuts everywhere**: `before-input-event` on every tab view so the 10.5 shortcuts work while a page has focus, not only the toolbar.
+5. **Agent bar**: acting, waiting and done per 10.3 and 10.4, driven by `SpaceRunState`. Replaces the Phase 3 interim bar.
+6. **Side panel**: Activity (milestone timeline), Memory (preferences, routes, notes from `packages/memory`), and the decision and approval cards, including the batched URL approval (9.4).
+7. **Shell Overlay view**: the input shield while acting (Esc means Take over), the ghost cursor from Actor `onActionTarget`, the find bar, toasts.
+8. **Browser basics**: every row of 10.6: error and crashed pages, context menu with "Send tab to Agent Space", permissions bubble, HTTP auth, certificate interstitial, external protocols, fullscreen, PDF, zoom, print, new tab page, history and bookmarks.
+9. **Settings page** (`aether://settings`): Cookie banners (Reject optional cookies / Accept all / Leave banners alone), memory reserve, memory on or off. Writes `config.json` only on the person's action.
+10. **Accessibility pass**: keyboard-only run and NVDA pass over the decision flow, recorded in `docs/A11Y.md`.
+
+Exit tests for Phase 4:
+1. The Human Space stays untouched while an Agent Space runs blue.
+2. Person clicks in an acting Agent Space are blocked; Esc takes over.
+3. Milestones appear in Activity in order.
+4. An irreversible fixture turns the Space amber with an approval card; Approve and Deny resolve the held call.
+5. Take over and "Hand back to Aether" work while an engine call is in flight.
+6. The contrast script passes for both themes; the keyboard and NVDA checks are recorded.
+7. Decision D4 (vertical tabs) is put to the person.
+
+### Phase 5. Chrome import and per-Space downloads
+
+Tasks, in order:
+1. Run S6 on Windows first, then macOS and Linux where available.
+2. `apps/desktop/src/main/import/`: bookmarks, history, decryptable cookies; temp copies deleted in `finally`; a report of what was skipped and why. Current Chrome user agent and `Sec-CH-UA` hints on `persist:aether`.
+3. A first-run import offer in the app, and an Import entry in Settings.
+4. Downloads: `will-download` per Space into `~/.aether/spaces/<id>/downloads`, the 1 GB free-disk check, a downloads popover (Ctrl+J). Agent uploads only from that folder (9.3).
+5. Deleting a Space removes its folder after confirmation when it holds files.
+
+Exit tests: importing a fixture profile fills bookmarks and cookies and leaves no temp files; a download lands in the Space folder; deleting the Space removes it after confirmation; a download that would leave under 1 GB free is refused with a clear message.
+
+### Phase 6. Retire 2.0 and measure v3
+
+Tasks, in order:
+1. Delete `apps/extension`, `apps/native-host` and `aether mcp --extension`. Remove their build steps, tests and docs.
+2. Update `README.md` and `docs/SETUP.md` to the app-only path.
+3. Run the benchmarks: multi-page shopping, 10-tab fan-out, form, handoff, against the baselines in section 12. Record the metrics in `docs/METRICS.md`.
+4. Packaging per D1 for a release build, if not done in Phase 3.
+
+Exit: all checks pass; metrics committed; a clean machine goes from installer to a finished `/aether` task with no manual steps.
 
 ---
 
@@ -823,7 +964,7 @@ Work one step at a time, in order. After each, run `pnpm typecheck`, `pnpm lint`
 
 | Id | Decision | Options | Needed by |
 |---|---|---|---|
-| D1 | Packaging and installer for Aether Desktop | `electron-builder`, `@electron/forge`, or run from source only in 3.1 | Step 6 (or earlier if an installer is wanted) |
+| D1 | Packaging and installer for Aether Desktop | `electron-builder`, `@electron/forge`, or run from source with `pnpm aether:install` only | Phase 3, task 3.8 (the from-source path works without it) |
 | D2 | SQLite driver inside Electron | Decided 2026-11-18 after S9: `node:sqlite` (built in). `better-sqlite3` removed | Done |
 | D3 | Cookie banner default | Decided 2026-11-18: a person's setting `cookieBanners` = `reject` (default), `accept` or `off` (6.1) | Done |
-| D4 | Vertical tabs as an option | Chrome-like horizontal only (3.1 default), or add a vertical tab layout later | After Step 4 |
+| D4 | Vertical tabs as an option | Chrome-like horizontal only (default), or add a vertical tab layout later | End of Phase 4 |
