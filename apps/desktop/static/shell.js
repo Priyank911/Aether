@@ -1,7 +1,8 @@
 /*
- * Interim shell (plan 3.1, Step 2). It draws the snapshot the main process
- * sends and turns clicks and keys into shell commands; it keeps no state of
- * its own. Page text (titles, URLs) is only ever set as textContent or value.
+ * Chrome-like shell (plan 3.1, section 10). It draws the snapshot the main
+ * process sends and turns clicks and keys into shell commands; it keeps no
+ * state of its own. Page text (titles, URLs) is only ever set as
+ * textContent or value.
  */
 (() => {
   const api = window.aether;
@@ -9,17 +10,21 @@
   const tabsEl = $('tabs');
   const spaceEl = $('space');
   const omnibox = $('omnibox');
-  const notice = $('notice');
+  const omniForm = $('omnibox-form');
+  const omniIcon = $('omni-icon');
   const agentBar = $('agentbar');
   const agentDot = $('agent-dot');
   const agentLabel = $('agent-label');
+  const agentMeta = $('agent-meta');
   const agentActions = $('agent-actions');
   let snapshot;
   let editing = false;
 
+  const notice = $('notice');
   const send = async (command) => {
     const result = await api.send(command);
     notice.textContent = result && result.ok === false ? result.error : '';
+    return result;
   };
 
   const visible = () => snapshot?.spaces.find((entry) => entry.space.id === snapshot.activeSpaceId);
@@ -27,12 +32,51 @@
     const entry = visible();
     return entry?.tabs.find((tab) => tab.id === entry.activeTabId);
   };
-
   const shownUrl = (url) => (url === 'about:blank' ? '' : url);
+  const hostOf = (url) => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return url;
+    }
+  };
+
+  const FAVICON_COLORS = ['#1a73e8', '#ea4335', '#34a853', '#fbbc04', '#9334e6', '#e8710a', '#12b5cb', '#d93025'];
+  const faviconColor = (title) => {
+    let hash = 0;
+    for (const ch of title || '') hash = (hash * 31 + ch.charCodeAt(0)) | 0;
+    return FAVICON_COLORS[Math.abs(hash) % FAVICON_COLORS.length];
+  };
+
+  function faviconEl(tab) {
+    const span = document.createElement('span');
+    span.className = 'favicon';
+    if (tab.favicon) {
+      const img = document.createElement('img');
+      img.src = tab.favicon;
+      img.alt = '';
+      img.referrerPolicy = 'no-referrer';
+      img.addEventListener('error', () => {
+        span.textContent = (tab.title || '?').trim().charAt(0).toUpperCase() || '?';
+        span.style.background = faviconColor(tab.title);
+        img.remove();
+      });
+      span.append(img);
+      span.style.background = '#fff';
+    } else {
+      span.textContent = (tab.title || hostOf(tab.url) || '?').trim().charAt(0).toUpperCase() || '?';
+      span.style.background = faviconColor(tab.title || tab.url);
+    }
+    return span;
+  }
 
   function render() {
     const entry = visible();
     if (!entry) return;
+    const agent = entry.space.kind === 'agent';
+    const frame = entry.frame;
+    const waiting = Boolean(frame?.pending);
+    $('space-dot').className = `dot${agent ? ' agent' : ''}${waiting ? ' wait' : ''}`;
     spaceEl.replaceChildren(
       ...snapshot.spaces.map((space) => {
         const option = document.createElement('option');
@@ -42,23 +86,40 @@
         return option;
       }),
     );
-    $('space-dot').className = `dot${entry.space.kind === 'agent' ? ' agent' : ''}`;
+
     tabsEl.replaceChildren(
       ...entry.tabs.map((tab) => {
         const button = document.createElement('div');
-        button.className = `tab${tab.state === 'hibernated' ? ' sleeping' : ''}`;
+        button.className = `tab${tab.id === entry.activeTabId ? ' active' : ''}${tab.state === 'hibernated' ? ' sleeping' : ''}${tab.state === 'crashed' ? ' crashed' : ''}`;
         button.setAttribute('role', 'tab');
         button.tabIndex = 0;
         button.setAttribute('aria-selected', String(tab.id === entry.activeTabId));
-        button.title = tab.state === 'hibernated' ? 'Sleeping to save memory. Click to load.' : tab.title || tab.url;
+        const label = tab.title || shownUrl(tab.url) || 'New tab';
+        button.title = tab.state === 'hibernated' ? 'Sleeping to save memory. Click to load.' : tab.state === 'crashed' ? 'This tab stopped working. Click to reload.' : label;
+        button.append(faviconEl(tab));
         const title = document.createElement('span');
         title.className = 'title';
-        title.textContent = tab.title || shownUrl(tab.url) || 'New tab';
+        title.textContent = label;
+        button.append(title);
+        if (tab.audible && !tab.muted) {
+          const mute = document.createElement('span');
+          mute.className = 'mute';
+          mute.title = 'This tab is playing audio';
+          mute.innerHTML = '<svg width="12" height="12"><use href="#i-mute"/></svg>';
+          button.append(mute);
+        }
+        if (tab.state === 'crashed') {
+          const warn = document.createElement('span');
+          warn.className = 'mute';
+          warn.style.color = 'var(--wait)';
+          warn.innerHTML = '<svg width="13" height="13"><use href="#i-warning"/></svg>';
+          button.append(warn);
+        }
         const close = document.createElement('button');
         close.className = 'close';
         close.type = 'button';
-        close.textContent = '×';
-        close.setAttribute('aria-label', `Close ${title.textContent}`);
+        close.setAttribute('aria-label', `Close ${label}`);
+        close.innerHTML = '<svg width="12" height="12"><use href="#i-close"/></svg>';
         close.addEventListener('click', (event) => {
           event.stopPropagation();
           void send({ type: 'tab.close', tabId: tab.id });
@@ -70,20 +131,24 @@
         button.addEventListener('keydown', (event) => {
           if (event.key === 'Enter' || event.key === ' ') void send({ type: 'tab.activate', tabId: tab.id });
         });
-        button.append(title, close);
+        button.append(close);
         return button;
       }),
     );
+
     const tab = activeTab();
     $('back').disabled = !tab?.canGoBack;
     $('forward').disabled = !tab?.canGoForward;
     if (!editing) omnibox.value = tab ? shownUrl(tab.url) : '';
+    const secure = tab?.url?.startsWith('https://');
+    omniForm.classList.toggle('secure', Boolean(secure));
+    omniIcon.innerHTML = `<svg width="14" height="14"><use href="#${secure ? 'i-lock' : 'i-globe'}"/></svg>`;
     document.title = tab?.title ? `${tab.title} - Aether` : 'Aether';
     renderAgentBar(entry);
   }
 
   /*
-   * The interim Agent bar (plan 3.2, task 3.3): the Space's run state and the
+   * The Agent bar (plan 3.2, task 3.3): the Space's run state and the
    * fixed-copy buttons that answer it. Button labels never come from the page.
    */
   function renderAgentBar(entry) {
@@ -92,12 +157,16 @@
     agentBar.hidden = !active;
     if (!active) {
       agentActions.replaceChildren();
+      agentMeta.textContent = '';
       return;
     }
     const pending = frame.pending;
     const needsPerson = Boolean(pending);
     agentBar.classList.toggle('waiting', needsPerson);
     agentDot.className = `dot ${needsPerson ? 'need' : 'act'}`;
+    const open = entry.tabs.filter((tab) => tab.state !== 'hibernated').length;
+    const sleeping = entry.tabs.length - open;
+    agentMeta.textContent = `${open} open · ${sleeping} sleeping`;
     const text = needsPerson && pending.prompt ? `Aether needs you: ${pending.prompt}` : frame.label;
     agentLabel.textContent = text.length > 160 ? `${text.slice(0, 159)}…` : text;
     const spaceId = entry.space.id;
@@ -106,17 +175,17 @@
       if (!pending) return;
       void send({ type: 'run.reply', spaceId, reply: { type: 'aether.reply', id: pending.id, kind, ...(replyText ? { text: replyText } : {}) } });
     };
-    const button = (label, handler, stop) => {
+    const button = (label, handler, cls) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = label;
-      if (stop) b.className = 'stop';
+      if (cls) b.className = cls;
       b.addEventListener('click', handler);
       return b;
     };
     const parts = [];
     if (pending && pending.reason === 'approval') {
-      parts.push(button('Approve', reply('approve')), button('Deny', reply('deny')));
+      parts.push(button('Approve', reply('approve'), 'primary'), button('Deny', reply('deny')));
     } else if (pending && pending.reason === 'question') {
       const input = document.createElement('input');
       input.type = 'text';
@@ -132,13 +201,13 @@
       });
       parts.push(input, button('Send', answer));
     } else if (pending && (pending.reason === 'must_perform' || pending.reason === 'captcha')) {
-      parts.push(button("I'm done", reply('done')));
+      parts.push(button("I'm done", reply('done'), 'primary'));
     } else if (pending && pending.reason === 'user_interrupted') {
-      parts.push(button('Hand back to Aether', reply('resume')));
+      parts.push(button('Hand back to Aether', reply('resume'), 'primary'));
     } else {
       parts.push(button('Take over', control('takeover')));
     }
-    parts.push(button('Stop task', control('stop'), true));
+    parts.push(button('Stop task', control('stop'), 'stop'));
     agentActions.replaceChildren(...parts);
   }
 
@@ -154,6 +223,7 @@
   $('back').addEventListener('click', () => void send({ type: 'nav.back' }));
   $('forward').addEventListener('click', () => void send({ type: 'nav.forward' }));
   $('reload').addEventListener('click', () => void send({ type: 'nav.reload' }));
+  $('panel').addEventListener('click', () => void send({ type: 'panel.toggle' }));
   omnibox.addEventListener('focus', () => {
     editing = true;
     omnibox.select();
@@ -162,7 +232,7 @@
     editing = false;
     render();
   });
-  $('omnibox-form').addEventListener('submit', (event) => {
+  omniboxForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const input = omnibox.value.trim();
     if (!input) return;
@@ -178,6 +248,7 @@
     else if (mod && event.shiftKey && event.key.toLowerCase() === 't') void send({ type: 'tab.reopen' });
     else if (mod && event.key.toLowerCase() === 'w' && tab) void send({ type: 'tab.close', tabId: tab.id });
     else if ((mod && event.key.toLowerCase() === 'l') || event.key === 'F6') omnibox.focus();
+    else if (mod && event.key === '\\') void send({ type: 'panel.toggle' });
     else if ((mod && event.key.toLowerCase() === 'r') || event.key === 'F5') void send({ type: 'nav.reload', hard: event.shiftKey });
     else if (event.altKey && event.key === 'ArrowLeft') void send({ type: 'nav.back' });
     else if (event.altKey && event.key === 'ArrowRight') void send({ type: 'nav.forward' });
