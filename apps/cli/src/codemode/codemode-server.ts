@@ -24,6 +24,9 @@ import { SessionSpaceEngine } from '@aether/engine';
 
 type Content = ToolContent;
 
+/** The aether_exec description: the rule line plus the SDK declaration (plan 3.2, section 8.2). */
+export const AETHER_EXEC_DESCRIPTION = `Run TypeScript in an Aether Space; return what you need. thought: one line shown to the person. If held, call again with wait. SDK:\n${SPACE_SDK_DECLARATION}`;
+
 function textResult(text: string, isError = false): { content: Content[]; isError: boolean } {
   return { content: [{ type: 'text', text }], isError };
 }
@@ -57,7 +60,7 @@ export function createCodeModeMcpServer(browser: MCPBrowserSession, options: { h
   server.registerTool(
     'aether_exec',
     {
-      description: `Run TypeScript in an Aether Space; return what you need. thought: one line shown to the person. If held, call again with wait. SDK:\n${SPACE_SDK_DECLARATION}`,
+      description: AETHER_EXEC_DESCRIPTION,
       inputSchema: AetherExecParamsSchema.shape,
     },
     (params) =>
