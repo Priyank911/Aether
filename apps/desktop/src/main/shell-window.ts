@@ -11,8 +11,9 @@ import type { MainDisplay } from './space-manager.js';
  */
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const SHELL_HEIGHT = 76;
-/** The interim Agent bar row (plan 3.2, task 3.3); the Phase 4 layout reserves it always. */
+/** Tab strip (40) + toolbar (44). The Agent bar adds AGENT_BAR_HEIGHT when shown. */
+export const SHELL_HEIGHT = 84;
+/** The Agent bar row (plan 3.2, task 3.3); the Phase 4 layout reserves it always. */
 export const AGENT_BAR_HEIGHT = 32;
 
 export interface ShellWindowOptions {
@@ -40,7 +41,12 @@ export class ShellWindow implements MainDisplay {
       ...(options.offscreen ? { x: left - width - 400, y: 0 } : {}),
       show: false,
       title: 'Aether',
-      backgroundColor: '#E8EBEF',
+      // Chrome-like: no native title bar or menu; the caption buttons float
+      // over the right end of the tab strip (plan 3.1, section 10.2).
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#DEE1E6', symbolColor: '#1B1D21', height: 40 },
+      autoHideMenuBar: true,
+      backgroundColor: '#DEE1E6',
     });
     this.shell = new WebContentsView({
       webPreferences: {
@@ -51,7 +57,7 @@ export class ShellWindow implements MainDisplay {
         spellcheck: false,
       },
     });
-    this.shell.setBackgroundColor('#E8EBEF');
+    this.shell.setBackgroundColor('#DEE1E6');
     this.window.contentView.addChildView(this.shell);
     // The shell never navigates away from its own page and never opens windows.
     this.shell.webContents.on('will-navigate', (event) => event.preventDefault());

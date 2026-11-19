@@ -213,6 +213,8 @@
 
   api.onSnapshot((next) => {
     snapshot = next;
+    document.body.classList.toggle('win', next.platform === 'win32');
+    document.body.classList.toggle('mac', next.platform === 'darwin');
     render();
   });
 

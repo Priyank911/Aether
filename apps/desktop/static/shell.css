@@ -50,6 +50,9 @@ button, select, input { font: inherit; color: inherit; }
   padding: 0 8px 0 10px;
   background: var(--frame);
 }
+/* Windows caption buttons float over the right end of the tab strip. */
+body.win .strip { padding-right: 140px; }
+body.mac .strip { padding-left: 78px; }
 
 .space-chip {
   display: inline-flex;
