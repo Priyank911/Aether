@@ -1,165 +1,90 @@
-# Set up Aether with your Chrome
+# Set up Aether
 
-Aether runs as an MCP server started by your MCP host. It reaches your logged-in Chrome through the Aether extension. The native host only tells the extension which local port the engine listens on; no page data passes through it.
+Aether Desktop is the browser. Coding hosts (Claude Code, VS Code Copilot,
+Antigravity, opencode, Cursor) reach it through one `aether` command and one
+linked skill — nothing is configured per host.
 
 ```
-MCP host --stdio--> Aether engine <--WebSocket on 127.0.0.1-- extension service worker --chrome.debugger--> agent tab
-                         |                                        ^
-                  ~/.aether/bridge.json  --read by-->  native host (port and token only)
+host skill (/aether) --> `aether exec` --> app service (named pipe) --> Aether Desktop
 ```
 
-Requirements: Windows, Google Chrome 125 or later, Node 22 or later, pnpm.
+Requirements: Windows, Linux or macOS, Node 22.13 or later, pnpm, Electron
+45 (installed by pnpm).
 
-## 1. Build
+## 1. Install
 
-From the repository root in PowerShell:
+From the repository root:
 
 ```powershell
 pnpm install
-pnpm setup:build
+pnpm aether:install
 ```
 
-`setup:build` compiles the engine (`apps/cli/dist`), the native host and the extension. Run it again after pulling changes, then reload the extension on `chrome://extensions`.
+`aether:install` builds everything, writes an `aether` shim on your user
+PATH (`%LOCALAPPDATA%\Aether\bin` on Windows, `~/.local/bin` elsewhere),
+adds that folder to PATH without admin rights, and links `skills/aether`
+into every installed host's skills folder. Open a new terminal afterwards.
 
-## 2. Load the extension
+To remove all of it: `pnpm aether:uninstall`.
 
-1. Open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked**.
-2. Select `apps/extension/.output/chrome-mv3`.
-3. Copy the extension ID from its card. The ID comes from the folder path, so it stays the same as long as you load it from the same place.
-
-## 3. Register the native host
-
-Per user, under `HKCU`; it writes the host manifest and one registry key:
+## 2. Check
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File apps/native-host/install.ps1 -ExtensionId YOUR_32_CHARACTER_EXTENSION_ID
+aether doctor
 ```
 
-Then reload the extension on `chrome://extensions`.
+It reports the builds, every host link, whether the app is reachable, and
+the app version. A missing or foreign link is named with its fix.
 
-## 4. Add Aether to your MCP host
+## 3. Use it
 
-Run the compiled entry point with Node directly. Do not launch it through `pnpm mcp`: pnpm prints a script banner on stdout, which is the MCP protocol stream, and the host then stays at "Starting" or reports a parse error.
+1. Start the browser: `pnpm desktop`, or just run any `aether` command —
+the first one starts the app for you.
+2. In your editor, type `/aether <task>` — for example
+   `/aether find running shoes under $120 with 4.3 stars or more`.
+   The host loads the skill, runs `aether skill` for the working method,
+   and sends one TypeScript script per step with `aether exec`.
+3. Watch the Agent Space in the app: the frame pulses blue while it works,
+   turns amber when it needs you, and the side panel shows milestones and
+   decision cards. Approvals, passwords and CAPTCHAs always stay with you.
 
-VS Code (`.vscode/mcp.json`):
+The command exits 0 done, 1 the script failed, 2 held (a token is printed;
+collect it with `aether wait <token>`), 3 the app could not be reached,
+4 bad usage.
 
-```json
-{
-  "servers": {
-    "aether": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["D:\\Agentic Browser\\aether\\apps\\cli\\dist\\index.js", "mcp"]
-    }
-  }
-}
-```
-
-Claude Code, Cursor and other hosts that use `mcpServers`:
-
-```json
-{
-  "mcpServers": {
-    "aether": {
-      "command": "node",
-      "args": ["D:\\Agentic Browser\\aether\\apps\\cli\\dist\\index.js", "mcp"]
-    }
-  }
-}
-```
-
-In VS Code the server starts when a chat session first uses it. Pressing Start in `mcp.json` before any chat exists fails with "Cannot start an MCP server before the session runtime has been created. Send a message first." That message comes from VS Code; open Chat in **Agent** mode and send a message, and VS Code starts Aether itself.
-
-Use the absolute path of your checkout. Run only one Aether server at a time: each one writes `~/.aether/bridge.json`, and the extension connects to the newest. When the host starts the server, Aether writes `~/.aether/bridge.json` (owner-only) with a random port and token, the native host passes them to the extension, and the extension connects. The side panel then shows **Connected**.
-
-## 5. Use it
-
-- Open the side panel from the Aether toolbar button.
-- Ask your agent to do something on the web. It opens its own tab in a blue **Aether** group; if you want it to work in a tab you already have open, choose **Let Aether use this tab** in the panel.
-- While it works the tab has a blue edge and a pill with **Take over** and **Stop**. When it needs you, the edge turns amber and the panel shows one card: answer the question, approve or deny, or do the step yourself and press **I've done it**. After **Take over**, press **Resume** to hand the tab back.
-- The **Memory** tab lists your preferences, the site routes Aether learned from successful runs, and site notes. Add, delete, or switch memory off there.
+Other commands: `aether spaces` (list/focus/close), `aether screenshot`,
+`aether done`, `aether status`, `aether skill`, `aether install-skill`,
+`aether uninstall-skill`.
 
 ## Where things live
 
 | What | Where |
 |---|---|
-| Bridge address, removed on a clean exit | `~/.aether/bridge.json` |
-| Memory and run log | `~/.aether/aether.db` (SQLite) |
-| Log, JSON lines | `~/.aether/aether.log` (`AETHER_LOG_LEVEL=debug` for more) |
+| App service address and token | `~/.aether/daemon.json` (removed on a clean exit) |
+| Profile (cookies, cache) | `~/.aether/profile/` |
+| Spaces, tabs, memory, space state | `~/.aether/aether.db` (SQLite) |
+| Settings | `~/.aether/config.json` |
+| Log, JSON lines, rotated at 10 MB | `~/.aether/aether.log` |
 
-## Troubleshooting
-
-Run `pnpm doctor` first. It checks the builds and the native host registration, reports which engine owns the bridge and whether Chrome is attached to it, and, when no engine is running, starts one for 20 seconds and waits for your extension to connect.
-
-| Symptom | Meaning and fix |
-|---|---|
-| The MCP host stays at "Starting" or reports a parse error | The server was started through `pnpm`, whose banner corrupts stdout. Use the `node .../apps/cli/dist/index.js mcp` command above. If `dist` is missing, run `pnpm setup:build`. The host's output channel for the server shows its stderr. |
-| Native host missing | The host is not registered for this extension ID. Run step 3 with the ID shown on `chrome://extensions`, then reload the extension. |
-| Waiting for your agent | The engine is not running. Start or reconnect your MCP host. A `bridge.json` left by a killed engine is replaced when the next one starts. |
-| An agent error naming a protected page | Chrome does not allow debugging `chrome://` pages, the Web Store or other extensions. Open a regular web page. |
-
-## Aether Desktop (preview, plan 3.1 Step 2)
-
-The Electron browser that replaces the Chrome extension. Start it from the repository root:
-
-```powershell
-pnpm desktop
-```
-
-It opens with your Personal Space. Today it has:
-- a plain tab strip and address bar, which Step 4 replaces with the full design;
-- Spaces;
-- tabs that sleep to save memory;
-- protection from crashed pages.
-
-Agent Spaces are created by agents. Until Step 3 they are created only by the test suite, because the editor connection to the app arrives in Step 3.
-
-What it stores, all under `~/.aether`:
-- `profile/`: Electron cookies and cache;
-- `aether.db`: Spaces, tabs and memory, shared with the CLI;
-- `config.json`: your settings.
-
-Shortcuts work while the toolbar has focus: Ctrl+T, Ctrl+W, Ctrl+Shift+T, Ctrl+L, Ctrl+R, Alt+Left and Alt+Right. Step 4 makes them work while a page has focus too.
-
-## How the agent works: Code Mode
-
-`aether mcp` serves four tools: `aether_exec`, `aether_screenshot`, `aether_spaces` and `aether_done`. The eight 2.0 tools are gone.
-
-The agent sends one TypeScript script per step to `aether_exec`. The script runs in a sandbox against the `space` SDK, which is printed in the tool's description. A multi-page survey that took a dozen tool calls is one call.
-
-Your host shows each step as an `aether_exec` call to the aether MCP server. That is Code Mode: MCP is only the connection, and every call carries a whole script.
-
-The host entry is the one in step 4 above; no extra flag is needed. An old `--codemode` argument is accepted and ignored.
-
-After pulling changes:
-1. Run `pnpm setup:build`.
-2. Restart the server in your host.
-
-Approvals, Take over and Stop work as before. Stop ends a running script at once.
-
-If a script waits for you longer than 50 seconds, the agent receives a token and calls `aether_exec` again with `wait` to keep waiting.
-
-With the Chrome extension there is one agent tab, so `space.mapPages` reads pages one after another. `openTabs` and `switchTab` need the Aether app, which arrives in Step 2.
-
-## Settings
-
-Your settings live in `~/.aether/config.json`. A change applies to the next page Aether loads, with no restart needed. Aether never changes this file itself, and the agent cannot change it.
+Settings (`config.json`, editable by you only):
 
 ```json
-{ "cookieBanners": "reject" }
+{ "cookieBanners": "reject", "minFreeMemoryRatio": 0.2 }
 ```
 
-`cookieBanners` decides what Aether does with a cookie consent banner when a page loads:
-- `"reject"` (default): clicks the option that refuses optional cookies ("Reject all", "Only necessary" and similar). If a banner offers no such option, Aether leaves it alone and tells the agent. It never accepts for you.
-- `"accept"`: clicks "Accept all".
-- `"off"`: never touches a banner.
+`cookieBanners`: `"reject"` (default, refuses optional cookies), `"accept"`,
+or `"off"`. The agent can neither read nor change settings.
 
-A missing file means the defaults. If the file is not valid JSON, or a value is unknown, Aether uses the defaults and writes one warning to `~/.aether/aether.log`.
+## Legacy: the Chrome extension path (until Phase 6)
 
-## Deterministic runs without the extension
+`aether mcp` still serves the four Code Mode tools over the 2.0 engine:
+the Chrome extension bridge, or `--direct --headless` for CI and
+evaluations. Setup for that path is unchanged:
 
-`pnpm mcp --direct --headless` starts the MCP server on an isolated, throwaway Chrome profile. The test suite and evaluations use this mode; it never touches your profile.
+1. `pnpm setup:build`
+2. Load `apps/extension/.output/chrome-mv3` unpacked on `chrome://extensions`.
+3. Register the native host: `powershell -ExecutionPolicy Bypass -File apps/native-host/install.ps1 -ExtensionId <id>`.
+4. Point an MCP host at `node <checkout>/apps/cli/dist/index.js mcp` —
+   never through `pnpm mcp`, whose banner corrupts the protocol stream.
 
-## Native messaging spike
-
-`powershell -ExecutionPolicy Bypass -File scripts/spikes/native-host-stdio.ps1` checks that the Windows command launcher preserves a framed stdio message.
+It is removed in Phase 6 once the app passes every end-to-end task.

@@ -174,3 +174,17 @@ Decision: the Shell Overlay view in plan section 4.4 works as designed. Open ite
 In the Step 2 end-to-end run, the agent host window stopped rendering after some minutes: trusted input to its pages timed out. This happened while the machine was under load, and the 3-second spike was too short to show it. Chromium's native window occlusion tracking marks a window placed beyond every display as occluded and then treats its pages as hidden.
 
 Aether Desktop now starts with `--disable-features=CalculateNativeWinOcclusion` and `--disable-backgrounding-occluded-windows`. With both, the Step 2 exit tests pass in two full parallel runs and in two runs under extra load.
+
+## S10: host support for the command-plus-skill connection
+
+Open. It needs each real host (Claude Code, VS Code Copilot, Antigravity,
+opencode, Cursor) to load the linked skill, run `/aether`, and let its shell
+tool run `aether exec` with a script on stdin. Method: a probe skill that
+logs each invocation, plus the request log of the optional MCP adapter.
+
+What is already true without the spike: `pnpm aether:install` links
+`skills/aether` into every installed host's skills folder (junctions on
+Windows), `aether` is on the user PATH, and `aether doctor` reports each
+link. The command and skill path is therefore the default; the optional
+`aether mcp` adapter over the app service is built only if a host the
+person uses cannot run the command.
