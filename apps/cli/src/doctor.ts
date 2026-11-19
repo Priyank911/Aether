@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BridgeConfigSchema } from '@aether/shared';
 import { ExtensionBridge } from './mcp/bridge.js';
+import { checkLinks, skillSourceDir, userHome } from './install/skill-links.js';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const HOST_NAME = 'com.aether.browser';
@@ -179,12 +180,37 @@ async function checkLiveConnection(allowedIds: string[]): Promise<void> {
   await bridge.close();
 }
 
+/** The /aether skill links in every installed host (plan 3.2, task 3.7). */
+function checkHostLinks(): void {
+  const source = skillSourceDir();
+  if (!existsSync(source)) {
+    report('fail', `the skill folder exists: ${source}`, 'run pnpm install from the Aether checkout');
+    return;
+  }
+  const states = checkLinks(userHome(), source);
+  const installed = states.filter((state) => state.status !== 'missing-host');
+  if (installed.length === 0) {
+    report('ok', 'no coding hosts found; nothing to link');
+    return;
+  }
+  for (const state of installed) {
+    if (state.status === 'linked') {
+      report('ok', `${state.host}: skill linked (${state.link})`);
+    } else if (state.status === 'missing') {
+      report('fail', `${state.host}: skill is not linked`, 'run: aether install-skill');
+    } else {
+      report('warn', `${state.host}: ${state.link} exists but is not Aether's link`, 'remove it by hand or pick another name, then run: aether install-skill');
+    }
+  }
+}
+
 /** Check every link between the MCP host, the engine, the native host and the extension. */
 export async function runDoctor(): Promise<number> {
   console.log('Aether doctor\n');
   checkBuilds();
   const allowedIds = checkNativeHost();
   if (!(await otherEngineRunning())) await checkLiveConnection(allowedIds);
+  checkHostLinks();
   const failed = results.filter((result) => result.outcome === 'fail').length;
   console.log(
     failed === 0

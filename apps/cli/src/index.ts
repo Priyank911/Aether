@@ -4,6 +4,7 @@ import { runDoctor } from './doctor.js';
 import { runMcpServer } from './mcp/index.js';
 import { EXIT } from './commands/aether-home.js';
 import { runDone, runExec, runScreenshot, runSpaces, runStatus, runWait } from './commands/run-service.js';
+import { runInstallSkill, runUninstallSkill } from './commands/host-links.js';
 import { runSkill } from './commands/skill.js';
 
 async function main() {
@@ -22,6 +23,10 @@ async function main() {
     process.exitCode = await runDone(args.slice(1));
   } else if (command === 'skill') {
     process.exitCode = runSkill();
+  } else if (command === 'install-skill') {
+    process.exitCode = runInstallSkill();
+  } else if (command === 'uninstall-skill') {
+    process.exitCode = runUninstallSkill();
   } else if (command === 'status') {
     process.exitCode = await runStatus();
   } else if (command === 'probe') {
@@ -84,6 +89,8 @@ function usageText(): string {
     '  spaces [list | focus <name> | close <name>]',
     '  done --space <name> --success <yes|no> --result <text> [--evidence <text>]',
     '  skill                          Print the working method and the space SDK',
+    '  install-skill                  Link the skill into every installed host',
+    '  uninstall-skill                Remove only Aether\'s links',
     '  status                         Is the app running, which Spaces are busy',
     '  probe <url> [--headed] [--text] [--find <q>]   Print the skim for a page',
     '  mcp [--direct] [--headless]    Start the Code Mode MCP server over the app service or Direct CDP',

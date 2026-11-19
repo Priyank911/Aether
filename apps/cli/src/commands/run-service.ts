@@ -21,6 +21,7 @@ export function usage(): string {
     '  aether spaces [list | focus <name> | close <name>]',
     '  aether done --space <name> --success <yes|no> --result <text> [--evidence <text>]',
     '  aether skill                                       print the working method and the space SDK',
+    '  aether install-skill | uninstall-skill             manage the host skill links',
     '  aether status                                      is the app running, which Spaces are busy',
   ].join('\n');
 }
