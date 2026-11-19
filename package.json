@@ -18,7 +18,7 @@
     "mcp:build": "tsc --build apps/cli",
     "setup:build": "tsc --build apps/cli apps/native-host && pnpm extension:build",
     "doctor": "tsc --build apps/cli && node apps/cli/dist/index.js doctor",
-    "desktop": "tsc --build apps/desktop && pnpm --filter @aether/desktop start"
+    "desktop": "tsc --build apps/desktop && node scripts/run-desktop.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",

@@ -34,8 +34,12 @@ export async function startDesktop(options: { home?: string; keepHome?: boolean 
   const home = options.home ?? mkdtempSync(path.join(os.tmpdir(), 'aether-desktop-'));
   const controlFile = path.join(home, 'test-control.json');
   rmSync(controlFile, { force: true });
+  const env: NodeJS.ProcessEnv = { ...process.env, AETHER_HOME: home, AETHER_TEST_CONTROL: controlFile, ELECTRON_ENABLE_LOGGING: '0' };
+  // Inherited from an Electron-based shell (an IDE), this makes Electron run
+  // as plain Node instead of the browser.
+  delete env.ELECTRON_RUN_AS_NODE;
   const child: ChildProcess = spawn(electronPath, [APP_DIR], {
-    env: { ...process.env, AETHER_HOME: home, AETHER_TEST_CONTROL: controlFile, ELECTRON_ENABLE_LOGGING: '0' },
+    env,
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   let stderr = '';
