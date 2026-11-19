@@ -4,7 +4,7 @@ import { availableParallelism } from 'node:os';
 import { app, session as electronSession, type Session } from 'electron';
 import { CDPClient, ElectronDebuggerTransport } from '@aether/cdp';
 import { CodeModeHost } from '@aether/codemode';
-import { fileConfig, openDatabase, SpaceStore } from '@aether/memory';
+import { fileConfig, openDatabase, SpaceStore, createLogger } from '@aether/memory';
 import { AgentHost } from './agent-host.js';
 import { pageSlots, type MemoryReading } from './concurrency.js';
 import { hardenApp, hardenSession } from './hardening.js';
@@ -45,9 +45,10 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function start(): void {
+  const logger = createLogger(undefined, undefined, 'aether-desktop');
   const db = openDatabase(paths.database);
   const store = new SpaceStore(db);
-  const config = fileConfig(paths.config, (message) => console.error(message));
+  const config = fileConfig(paths.config, (message) => logger.warn(message));
   const transport = new ElectronDebuggerTransport();
   const client = CDPClient.over(transport);
   let memoryOverride: MemoryReading | undefined;
@@ -110,7 +111,7 @@ function start(): void {
     tools: new DesktopTools({ manager, engine, codeMode }),
     appVersion: app.getVersion(),
   });
-  void service.listen().catch((error: unknown) => console.error(`the app service could not listen: ${error instanceof Error ? error.message : String(error)}`));
+  void service.listen().catch((error: unknown) => logger.error(`the app service could not listen: ${error instanceof Error ? error.message : String(error)}`));
 
   if (testControlFile) {
     startTestControl(testControlFile, {

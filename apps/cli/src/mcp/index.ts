@@ -24,7 +24,7 @@ export async function runMcpServer(options: MCPServerOptions = {}): Promise<void
     await bridge.start();
     const client = CDPClient.over(bridge.transport);
     bridge.on('reset', (reason: string) => client.resetSessions(reason));
-    const logger = createLogger();
+    const logger = createLogger(undefined, undefined, 'aether-mcp');
     browser = await MCPBrowserSession.over(client, { database: openDatabase(), logger });
     bridge.attachRun(browser.run);
     const session = browser;
