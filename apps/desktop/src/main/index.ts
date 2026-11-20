@@ -11,6 +11,8 @@ import { hardenApp, hardenSession } from './hardening.js';
 import { MemoryWatchdog, systemMemory } from './memory-watchdog.js';
 import { BrowserPrompts } from './browser-prompts.js';
 import { NavigationStore } from './navigation-store.js';
+import { configureBrowserIdentity } from './import/browser-identity.js';
+import { ImportController } from './import/import-controller.js';
 import { installInternalPages } from './internal-pages.js';
 import { aetherPaths } from './paths.js';
 import { installRequestFilter } from './request-filter.js';
@@ -86,6 +88,7 @@ function start(): void {
     installInternalPages(target, {
           spaces: () => [...manager.list().map((entry) => entry.record), ...manager.archivedSpaces()].sort((a, b) => b.createdAt - a.createdAt),
           history: () => navigationStore.list(manager.visibleSpaceId, 'history'),
+          importOffer: () => navigationStore.importOffer,
         });
     hardenSession(target, {
           kindOf: (id) => ownerOf(id)?.kind,
@@ -98,7 +101,9 @@ function start(): void {
     } }, filtered);
   };
   app.on('session-created', protect);
-  protect(electronSession.fromPartition(PERSIST_PARTITION));
+  const personalSession = electronSession.fromPartition(PERSIST_PARTITION);
+  if (process.versions.chrome) configureBrowserIdentity(personalSession, process.versions.chrome);
+  protect(personalSession);
   protect(electronSession.defaultSession);
 
   // Code Mode over the desktop's Spaces (plan 3.2, task 3.2). Milestones from
@@ -116,7 +121,9 @@ function start(): void {
 
   const memoryStore = new MemoryStore(db);
   const settingsStore = new ShellSettingsStore(paths.config, config, memoryStore);
-  const bridge = new ShellBridge(manager, shellWindow, engine, codeMode, { navigationStore, memoryStore, prompts, settingsStore });
+  // Offscreen fixtures must never discover the person's actual browser profiles.
+  const importer = new ImportController(navigationStore, personalSession, testControlFile ? [] : undefined);
+  const bridge = new ShellBridge(manager, shellWindow, engine, codeMode, { navigationStore, memoryStore, prompts, settingsStore, importer });
   manager.restore();
   bridge.push();
 
@@ -138,6 +145,7 @@ function start(): void {
       shellWindow,
       store,
       navigationStore,
+      importer,
       bridge,
       watchdog,
       client,

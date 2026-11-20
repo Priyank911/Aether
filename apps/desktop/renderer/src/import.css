@@ -1,0 +1,26 @@
+.settings-inner .browser-import { margin-top: var(--space-6); }
+.import-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.import-heading h2 { margin-top: var(--space-2); }
+.import-source { color: var(--text-muted); font-size: var(--font-small); white-space: nowrap; border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2); }
+.import-tools, .import-actions, .import-offer { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.import-offer { padding: var(--space-3); margin: var(--space-4) 0; background: var(--field); border-left: 2px solid var(--focus); font-size: var(--font-small); }
+.import-offer span { flex: 1; }
+.browser-import button { min-height: var(--strip-height); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); background: var(--field); font: inherit; cursor: pointer; }
+.browser-import button:hover:not(:disabled) { border-color: var(--focus); }
+.browser-import button:disabled { opacity: .5; cursor: default; }
+.browser-import .import-primary { background: var(--focus); border-color: var(--focus); color: var(--surface); font-weight: 600; }
+.import-choices { border: 0; padding: 0; margin: var(--space-6) 0 var(--space-4); }
+.import-choices legend { color: var(--text-muted); font-size: var(--font-small); }
+.import-choices label { display: flex; gap: var(--space-2); align-items: center; }
+.import-choices input { accent-color: var(--focus); }
+.import-privacy, .import-actions [role=status], .import-empty { font-size: var(--font-small); color: var(--text-muted); }
+.import-report { border-top: 1px solid var(--border); margin-top: var(--space-6); padding-top: var(--space-4); }
+.import-report h3 { margin: 0 0 var(--space-3); font-size: var(--panel-title); }
+.import-report dl { margin: 0; }
+.import-report dl > div { display: flex; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) 0; }
+.import-report dd { margin: 0; color: var(--text-muted); text-align: right; }
+.import-report dd strong { color: var(--text); }
+.import-report ul { padding-left: var(--space-4); font-size: var(--font-small); color: var(--text-muted); line-height: 1.6; }
+.import-report li { margin-top: var(--space-3); overflow-wrap: anywhere; }
+.import-report p { font-size: var(--font-small); }
+@media(max-width:640px) { .import-heading { flex-direction: column; } .import-source { white-space: normal; } }

@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import type { ShellSettings } from '@aether/shared';
+import type { ImportState, ShellSettings } from '@aether/shared';
+import ImportSettings from './ImportSettings';
 import './settings.css';
 
-export default function SettingsPage({ settings, top, right }: { settings: ShellSettings; top: number; right: number }) {
+export default function SettingsPage({ settings, browserImport, top, right }: { settings: ShellSettings; browserImport?: ImportState; top: number; right: number }) {
   const [cookieBanners, setCookies] = useState(settings.cookieBanners);
   const [reserve, setReserve] = useState(String(Math.round(settings.minFreeMemoryRatio * 100)));
   const [memoryEnabled, setMemory] = useState(settings.memoryEnabled);
@@ -36,5 +37,6 @@ export default function SettingsPage({ settings, top, right }: { settings: Shell
       <div className="settings-actions"><button type="submit" disabled={busy || !dirty}>{busy ? 'Saving…' : 'Save changes'}</button><span role="status">{status}</span></div>
       {error && <p className="settings-error" role="alert">{error}</p>}
     </form>
+    {browserImport && <ImportSettings state={browserImport} />}
   </div></main>;
 }

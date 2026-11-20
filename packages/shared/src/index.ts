@@ -8,3 +8,4 @@ export * from './host-tools.js';
 export * from './daemon.js';
 export * from './shell-ipc.js';
 export * from './config.js';
+export * from './browser-import.js';

@@ -29,8 +29,9 @@ website, host, OS, accessibility flow or release acceptance criterion.
    `PERCEPTION.md` documents deterministic ranking, not an implementation
    roadmap. Survey's documented output budget is about 400–600 tokens.
 7. React receives metadata snapshots through the preload. Native page views
-   sit above the shell; a separate transparent renderer is intended for UI
-   above pages. CSS pointer-events cannot make a native view click-through.
+   sit above the shell; a separate transparent renderer now handles UI above
+   pages. Its native bounds/attachment, not CSS pointer-events, govern input
+   shielding. The page is resized alongside the Activity/Memory panel.
 
 Aether already uses Chromium through Electron. Google is the current
 omnibox search provider (`src/main/omnibox.ts`), not DuckDuckGo. Changing a
@@ -43,13 +44,13 @@ DuckDuckGo references also remain in benchmarks and historical spike results.
 |---|---|
 | 0–2 | Recorded complete in the plan; schema, engine and desktop core tests still pass. |
 | 3 | Engine extraction, desktop Code Mode, held runs, service, commands, skill links, source installer and log rotation exist. S10 host acceptance and clean Windows-profile install acceptance are open. Packaged installation depends on D1. Static review found the gaps below; this phase is not fully signed off. |
-| 4 | Active phase. React tab strip, toolbar, interim Agent bar, overlay scaffolding, tab reorder backend and panel-toggle state exist. Most interactive shell and browser-basics acceptance work remains. |
-| 5 | Pending: S6 import/sign-in spike, importer, import UI, guarded per-Space downloads and deletion confirmation. Downloads currently fail closed. |
+| 4 | Active phase. Tasks 4.1–4.9 implemented with the scope below: native shortcuts, Agent bar, working Activity/Memory panel, decisions, shield/Find, browser basics and Settings. Task 4.10 native keyboard automation passes; NVDA/manual acceptance, OAuth popup exception and D4 remain open. |
+| 5 | In progress: isolated S6 fixture probe plus device-independent importer and first-run/Settings UI. Latest full validation: 47 files / 328 tests passed. Live sign-in/other-OS encryption evidence remains open; guarded per-Space downloads and deletion confirmation are not started. Downloads currently fail closed. |
 | 6 | Pending: retire legacy extension/native host only after desktop acceptance, app-only documentation, measured v3 benchmarks, packaging and clean-machine acceptance. |
 
 There are **three phases with outstanding delivery work (4, 5, 6)**,
-plus Phase 3 correctness and manual acceptance carryovers. An exact count
-of finished Phase 4 tasks would be misleading: several are only scaffolded.
+plus Phase 3 correctness and manual acceptance carryovers. Phase 4 is no
+longer mostly scaffolding, but implementation is not phase exit acceptance.
 
 ### Remaining Phase 4 requirements
 
@@ -58,21 +59,24 @@ of finished Phase 4 tasks would be misleading: several are only scaffolded.
   native Space menu and archived-Space restoration.
 - Task 3: complete; host-only resting URL, native-overlay suggestions, running
   Agent-Space indicator and native main menu are implemented and tested.
-- Task 4: browser shortcuts must work while the native page has focus;
-  renderer-only key handlers are insufficient.
-- Task 5: Agent bar is interim; elapsed time, review flow and done behavior
-  still need completion against the plan.
-- Task 6: actual Activity/Memory panel, resize geometry, decision cards,
-  batched URL approvals and memory command implementation are missing.
-- Task 7: acting-state input shield, Esc takeover, action-target cursor,
-  reticle, find UI/results and toasts are missing. Mounting the overlay
-  alone does not implement these behaviors.
-- Task 8: custom error/crash pages, context menu, permissions, auth,
-  certificate handling, protocol prompts, fullscreen, site zoom persistence,
-  printing and internal new-tab/history/bookmark surfaces need acceptance.
-- Task 9: Settings UI and human-only preference editing are missing.
-- Task 10: keyboard-only and NVDA decision-flow checks must be recorded;
-  D4 (optional vertical tabs) remains a person decision.
+- Task 4: native page-focus shortcuts implemented. Find/History/bookmark
+  actions were wired with their feature tasks; Downloads stays in Phase 5.
+- Task 5: state-driven Agent bar, elapsed time, review and done behavior
+  implemented; it is no longer the interim Phase 3 bar.
+- Task 6: Activity/Memory panel implemented, including native page geometry,
+  pointer/keyboard resizing, decisions, batch URLs and local memory controls.
+- Task 7: acting shield, Esc takeover, action-target cursor/reticle, native
+  Find and toasts implemented and tested. Idle Find uses a small overlay,
+  not a full-page input blocker.
+- Task 8: error/crash recovery, context menu, prompts, auth, certificate
+  refusal, fullscreen/PDF/print hooks, stored zoom, pixel-art new tab,
+  history and bookmarks implemented. Downloads remains Phase 5. External
+  apps are allowlisted to mailto/tel/sms; other schemes are unsupported.
+  OAuth opener-preserving popups and manual platform acceptance remain open.
+- Task 9: human-only Settings implemented; explicit saves preserve unknown
+  config keys and refuse to overwrite malformed JSON.
+- Task 10: automated native keyboard decision flow passes. NVDA and manual
+  checks are not run; see `A11Y.md`. D4 remains a person decision.
 
 ## Correctness findings to reproduce and fix
 
@@ -102,9 +106,11 @@ They require isolated regression tests before their respective fixes.
    implement the full slot-governed, page-scoped `mapPages` callback/sleep
    lifecycle described by Phase 3.2. Verify callback/tab isolation and batch
    URL approval as well as final result correctness.
-7. **Send tab semantics:** `ShellBridge` opens a copy of the URL then closes
-   the original tab. This does not preserve navigation history as section
-   5.1 requires. OAuth popups also lack the opener-preserving exception.
+7. **Send tab semantics — partially resolved in 4.8:** same-session sends
+   now transfer the live Tab/view, retaining history and form state, with
+   fixture coverage. Cross-session/ephemeral transfers fail explicitly;
+   they do not silently copy a URL. OAuth popups still lack the required
+   opener-preserving exception.
 
 ## Task 4.1 repair — complete
 
@@ -261,16 +267,234 @@ Single-fork validation remains necessary for reliable local browser fixtures.
 Native popup templates/actions are covered; manual popup interaction and
 cross-OS/accessibility acceptance are not claimed.
 
+## Tasks 4.4–4.9 — implementation evidence
+
+Task status: implemented with the explicitly deferred scope below; no
+manual phase-exit sign-off is implied. All changes remain uncommitted.
+
+- **4.4–4.5:** native `before-input-event` routing, browser menu/shortcut
+  tables, and the state-driven Agent bar replace renderer-only/interim
+  behavior. Relevant files: `shortcuts.ts`, `shortcuts-electron.ts`,
+  `browser-menu.ts`, `renderer/src/AgentBar.tsx`.
+- **4.6:** `SidePanel.tsx`, `DecisionCard.tsx`, `MemoryPanel.tsx`,
+  `panel.css` and `shell-memory.ts` implement the actual panel, trusted
+  replies and memory actions. `panel.e2e.test.ts` covers eight real flows.
+  Validation at this task: 38 files / 289 tests; this historical run used
+  one permitted retry. Later runs below did not use retries.
+- **4.7:** `overlay.tsx`, `overlay.css`, `shell-window.ts`, the Actor's
+  `action-target.ts` and callbacks implement shielding and projected iframe
+  feedback. Projection failure clears feedback instead of guessing.
+  `overlay.e2e.test.ts` and `action-target.test.ts` cover the behavior.
+  Validation: 40 files / 296 tests, no retries.
+- **4.8:** `internal-pages.ts`, `browser-basics.ts`, `browser-prompts.ts`,
+  `navigation-store.ts`, `BrowserRequest.tsx` and `BookmarksBar.tsx` add
+  browser surfaces. The new tab displays centered white pixel-art Aether
+  on a dark page and only real recent Agent Spaces. The Space dropdown
+  dismisses on outside shell/page-overlay/panel clicks and blur/resize.
+  The reload path now activates crashed/asleep tabs through the manager,
+  restoring their placement instead of only waking the renderer.
+  `basics.e2e.test.ts` has eight tests, including local HTTP auth and TLS
+  refusal. The committed-source candidate certificate/key under
+  `tests/helpers/localhost-*.pem` is public, local test-only material, not
+  a production credential. Validation: 41 files / 305 tests, no retries.
+- **4.9:** `SettingsPage.tsx`, `settings.css`, `shell-settings.ts` and shared
+  shell schemas add a real Personal Settings tab. The trusted shell owns
+  editing, not a privileged page preload. Atomic explicit saves update
+  cookie behavior, memory reserve and memory enablement; agents cannot
+  invoke Settings saves. Unit and Electron coverage passes.
+  Validation: 43 files / 311 tests, no retries.
+
+Each completed task passed typecheck, lint (0 errors, 7 existing warnings)
+and the full single-fork suite before advancement. Paths above are relative
+to `apps/desktop/src/main`, `apps/desktop/renderer/src`, or the corresponding
+`tests` directory unless a package prefix is given.
+
+Deviations and remaining scope: native shortcut actions followed their
+feature availability; Downloads is Phase 5. Same-session live tab transfer
+is fixed, but OAuth opener preservation is not. External protocols are
+limited to mailto/tel/sms. Fullscreen/print/PDF have hooks, not complete
+manual platform acceptance. No dependencies were added. S6, S10, NVDA and
+packaged clean-machine acceptance were not run.
+
+## Task 4.10 — partial, manual acceptance pending
+
+Files: `apps/desktop/tests/a11y.e2e.test.ts`, `docs/A11Y.md`, this audit and
+`docs/PLAN.md`. The new test performs a live native-keyboard question flow,
+including initial focus, F6, Tab, Activity/Memory arrow navigation, answer
+submission into the held script and Ctrl+Backslash. No pointer is used.
+
+Command:
+
+```sh
+pnpm typecheck && pnpm lint && CI=true pnpm test --poolOptions.forks.maxForks=1 --poolOptions.forks.minForks=1
+```
+
+First full run after the new test: typecheck passed; lint had 0 errors and
+7 existing warnings; all 24 contrast checks and **44 files / 312 tests**
+passed without retries (258.18 s test duration). This is automated evidence,
+not the required NVDA or manual phase exit. `A11Y.md` records the unrun
+checklist rather than claiming screen-reader acceptance.
+
+The second full run passed typecheck/lint/contrast but failed the Settings
+fixture's native number entry (`3` instead of `30`); its dependent test
+then found no config file. Result: 43 files passed / 1 failed, 310 tests
+passed / 2 failed. Adding complete key sequences and a render barrier did
+not resolve it in a targeted run, so no production cause is claimed.
+The Settings persistence test now uses the native DOM value setter plus
+an input event, as a controlled form-edit test, rather than claiming
+keyboard coverage there. The separate accessibility flow still uses real
+native keyboard input. Targeted Settings rerun: 3 tests passed. No
+production Settings behavior was changed to make the fixture pass.
+
+After that fixture adjustment, typecheck/lint/contrast and the full suite
+passed again: **44 files / 312 tests**, no retries (229.17 s). The next
+consecutive run passed typecheck/lint/contrast but failed the accessibility
+test's initial-focus assertion at `a11y.e2e.test.ts:31`: active-element text
+stayed empty rather than becoming Send answer. Result: **43 files passed /
+1 failed, 311 tests passed / 1 failed** (280.99 s). The initial-focus failure
+is unresolved; it may be native focus/fixture timing or application focus
+ordering and needs isolation before a production fix. Two consecutive
+passing runs are **not established**. Do not weaken or skip that assertion
+to claim the accessibility gate passed.
+
+## Phase 5 task 1 / S6 — partial
+
+At the person's explicit request to move to the next phase, implemented only
+the isolated S6 probe. This is an ordering exception for spike work, not a
+Phase 4 exit sign-off. No production import behavior was chosen.
+
+Created:
+
+- `scripts/spikes/s6-chrome-import.mts`: explicit-profile or fixture CLI,
+  redacted count-only output and generated-fixture cleanup.
+- `scripts/spikes/s6/profile.mts`: read-only SQLite copies, integrity/journal
+  checks, bookmark counts, DPAPI/v10 authentication and host binding,
+  explicit v20 skip counts, key wiping and `finally` cleanup.
+- `scripts/spikes/s6/fixture.mts`, `s6/dpapi.ps1`: generated encrypted data and
+  Windows CurrentUser DPAPI helper. No personal profile auto-discovery.
+- `tests/chrome-import-spike.test.ts`: five regression tests.
+
+Updated `docs/SPIKES.md` and `docs/PLAN.md` with evidence and remaining scope.
+Windows fixture: 2 bookmarks / 1 history URL, 7 cookies: valid v10 and legacy
+DPAPI decrypted, two malformed/host-mismatched v10 payloads refused, one v20
+sentinel skipped, plaintext/unsupported rows counted. Both fixture and
+working copies were removed. This does not measure real Chrome App-Bound
+resistance or Google/bank sign-in. No new dependencies or app UI changes.
+
+Commands/results:
+
+- `pnpm exec tsx scripts/spikes/s6-chrome-import.mts --fixture`: passed.
+- `pnpm exec tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext scripts/spikes/s6-chrome-import.mts`: passed.
+- Targeted spike tests: 5 passed after matching the existing SQLite runtime
+  loading pattern for Vite 5. Lint remains 0 errors / 7 existing warnings.
+- Required `pnpm typecheck && pnpm lint && CI=true pnpm test --poolOptions.forks.maxForks=1 --poolOptions.forks.minForks=1`:
+  typecheck/lint/contrast passed; **43 files passed / 2 failed, 314 tests
+  passed / 3 failed**. Existing command cold-start returned held (2) instead
+  of success (0), approval check found no pending reason, and toolbar focus
+  did not settle. The spike tests passed in this run.
+- Targeted rerun of command/toolbar files: **17 passed / 2 failed**;
+  cold-start still returned 2, and toolbar Escape did not restore resting
+  host text. Approval and the original toolbar-history case passed this
+  rerun. These failures remain unresolved; no unrelated code was changed.
+
+Next Phase 5 task: finish S6 using an explicitly selected closed Chrome
+profile and person-led Google/bank sign-in measurements. Do not start the
+production importer until S6 outcomes and full-suite validation are clear.
+
+## Phase 5 tasks 2–3 — generic in-app import implemented
+
+The person explicitly requested a portable app feature, not a hardcoded
+path to their personal profile, then continuation to the next phase. Used
+S6 fixture evidence for supported decryption paths without claiming live
+sign-in or other-OS encryption acceptance. No personal profile was read.
+
+Files created:
+
+- `apps/desktop/src/main/import/profiles.ts`: OS-relative Chrome discovery,
+  profile labels and canonical directory registration. A native picker
+  supports nonstandard locations; renderer commands carry offered ids,
+  never arbitrary paths.
+- `import/source.ts`, `cookie-crypto.ts`, `chrome-importer.ts`: read-only
+  History/Cookies copies, journal/integrity checks, BigInt Chrome timestamps,
+  Windows CurrentUser DPAPI/v10 authenticated decryption and host binding,
+  and finally cleanup. Source writes and raw-data diagnostics are absent.
+- `import/browser-identity.ts`: UA derives from the bundled Chromium version;
+  removes Electron/scoped app product tokens and supplies basic client hints
+  on the persistent partition. This does not establish site compatibility.
+- `import/import-controller.ts`: serialized person-only registry/import flow;
+  existing cookies are retained and imported cookies flushed to persistence.
+- `packages/shared/src/browser-import.ts`: profile/selection/report/state
+  schemas. Updated shared exports and shell command/snapshot schemas.
+- `apps/desktop/renderer/src/ImportSettings.tsx`, `import.css`: profile search,
+  folder picker, explicit choices, default cookie opt-out, busy/error states,
+  first-run dismissal and per-kind imported/skipped counts with explanations.
+- `tests/chrome-import.test.ts`: seven tests, including the production DPAPI
+  helper against a generated key, idempotent navigation merging and safe
+  unavailable-platform behavior.
+- `apps/desktop/tests/import.e2e.test.ts`: four real Electron tests, including
+  first-run link, explicit cookie opt-in, context/path refusal, restart
+  persistence and local HTTP UA/client-hint assertions.
+
+Also changed `navigation-store.ts`, `index.ts`, `internal-pages.ts`,
+`shell-bridge.ts`, `test-control.ts`, `SettingsPage.tsx`, `App.tsx`,
+`docs/SETUP.md`, `docs/PLAN.md` and `docs/SPIKES.md`.
+
+Task 2 validation before starting UI: typecheck/lint passed, full suite
+**46 files / 323 tests**, no retries. Chrome timestamps initially overflowed
+SQLite's default safe-number reads; reading DB integers as BigInt fixed the
+actual source-format issue. Temporary-copy cleanup failures are surfaced,
+not falsely reported as success.
+
+Task 3 validation:
+
+- Targeted import UI run initially passed; its first full run caught a
+  fixture race clicking Import before React enabled it. Waiting for the
+  enabled button resolved that test without changing production behavior.
+- The next full run passed all import tests but hit existing initial-focus
+  failures in accessibility/tabstrip (325 passed / 2 failed).
+- A new local HTTP assertion caught the actual scoped app token
+  `@aether/desktop` in the UA; removed that token and added regression coverage.
+- Latest targeted result: **11 tests passed** across core and UI suites.
+- Latest required command, `pnpm typecheck && pnpm lint && CI=true pnpm test --poolOptions.forks.maxForks=1 --poolOptions.forks.minForks=1`:
+  **all passed, 47 files / 328 tests**, no retries (272.02 s test duration).
+  Lint remains 0 errors / 7 existing warnings; 24 contrast checks passed.
+- Captured and visually inspected the offscreen fixture's Settings import
+  section. Added spacing from the preceding Settings form after review.
+  This is not cross-OS, native-picker interaction or NVDA acceptance.
+
+Scope/deviations: the person's request allowed generic implementation while
+S6's personal-profile/sign-in questions remain unmeasured. Windows decryption
+is supported only where the OS unwrap succeeds. App-Bound and partitioned
+cookies are explicitly skipped; encrypted macOS/Linux cookies are currently
+unsupported and reported, not silently assumed decryptable. Plaintext cookie
+import works independently of OS. Bookmark folders are flattened because
+Aether's current bookmark store is flat. Passwords are not imported. No new
+dependencies, packaging choice or legacy removal.
+
+Next ordered task: **5.4 guarded per-Space downloads**, then **5.5 deletion
+confirmation**. The request to start Phase 6 conflicts with its desktop
+acceptance prerequisite until these and the open acceptance gates clear;
+legacy retirement has not started.
+
 ## Next task and release gates
 
-Next ordered UI task: **4.4 shortcuts everywhere — blocked by plan ordering**.
-Task 4.4 requires every shortcut in §10.5 to work while the page has focus,
-but that table includes Find (task 4.7), History/bookmark UI (task 4.8) and
-Downloads (Phase 5). Completing those surfaces now would violate the rule to
-work in order; installing no-op handlers would not satisfy "work". No task
-4.4 code was started. The person must clarify whether task 4.4 should wire
-currently implemented actions now and defer each remaining shortcut to its
-own feature task, or explicitly reorder those prerequisites.
+Phase 4's next outstanding task remains: **isolate the intermittent 4.10 initial-focus failure,
+then finish manual accessibility acceptance**. The native keyboard flow has
+passed full runs but the latest run failed its initial-focus assertion;
+NVDA has not run. Section 10.5 and task
+4.10 require that pass, and section 14 requires phase order. Therefore the
+request to finish through Phase 6 cannot be represented as complete or
+used to bypass the phase exit gates. D4 must also be put to the person.
+
+The earlier task 4.4 ordering concern was handled by wiring native
+shortcuts as each feature became available; Find/History/bookmarks now
+work, while Downloads/Ctrl+J remains explicitly deferred to Phase 5.
+This dependency handling did not change the plan's feature requirements.
+The person subsequently requested the next phase and a portable import UI;
+the importer and first-run/Settings flow above are implemented, with live
+sign-in/other-OS encryption measurements still open.
+This does not imply Phase 4 acceptance. Keep the extension/native-host until desktop acceptance;
+Phase 6 removal is not authorized by passing unit tests.
 
 Continue one task at a time and run typecheck, lint and tests after each.
 Phase exits require two passing exit runs, not just one full-suite pass.

@@ -186,6 +186,106 @@ In the Step 2 end-to-end run, the agent host window stopped rendering after some
 
 Aether Desktop now starts with `--disable-features=CalculateNativeWinOcclusion` and `--disable-backgrounding-occluded-windows`. With both, the Step 2 exit tests pass in two full parallel runs and in two runs under extra load.
 
+## S6: Chrome import and embedded sign-in — partial
+
+2026-11-20, Windows, Node 22.18.0. Started at the person's explicit request
+to move to the next phase; this does not sign off Phase 4 acceptance.
+
+Entry point: `scripts/spikes/s6-chrome-import.mts`. Helpers under
+`scripts/spikes/s6/`; regression coverage: `tests/chrome-import-spike.test.ts`.
+No new dependencies. This is an isolated probe, not a production importer.
+
+```sh
+pnpm exec tsx scripts/spikes/s6-chrome-import.mts --fixture
+```
+
+Default/no arguments also runs the fixture. It creates generated data only,
+uses Windows CurrentUser DPAPI through a bounded, noninteractive PowerShell
+helper, and removes both the fixture and working copies in `finally`.
+Keys use subprocess stdin/stdout, never process arguments. Output contains
+only counts and fixed status labels: no URLs, titles, hosts or cookie values.
+Raw native errors are not printed.
+
+Measured fixture results:
+
+| Check | Result |
+|---|---|
+| Bookmarks / history URL rows | 2 / 1 |
+| Cookie rows | 7 |
+| DPAPI-wrapped AES key | Unwrapped successfully |
+| Valid v10 AES-256-GCM cookie with schema-24 host hash | 1 decrypted |
+| Damaged GCM tag / mismatched host hash | Both rejected |
+| Legacy DPAPI cookie | 1 decrypted |
+| Plaintext / unsupported cookie format | 1 counted / 1 skipped |
+| v20 prefix sentinel | 1 skipped; real App-Bound decryption **not attempted** |
+| Working copies / generated fixture | Both removed |
+
+The fixture proves our use of Windows DPAPI, GCM authentication, host binding,
+counting and cleanup for generated data. It does **not** prove that a current
+Chrome profile exposes a decryptable key, that v20 cannot be decrypted, or
+that a person can sign in to Google or their bank inside Electron.
+
+For a person-approved real-profile measurement, pass `--profile` followed by
+an absolute path to the specific Chrome profile directory (not User Data).
+Close Chrome first. The command reads Bookmarks and the parent Local State
+directly and copies only History/Cookies to a temporary directory. It opens
+the copies read-only, checks integrity and rejects nonempty WAL/rollback
+journals or detected source changes rather than silently omitting WAL rows.
+Source files are never written; nothing is imported into Aether. It does not
+auto-discover or scan profiles, contact sites, bypass App-Bound encryption,
+request elevation or capture sign-in credentials. The real-profile mode is
+Windows-only; macOS/Linux key-store integration has not been measured.
+
+Automated evidence: standalone fixture passed; strict standalone TypeScript
+check passed; five regression tests passed. Tests cover unchanged source
+hashes, cleanup after bad SQLite data and active-WAL refusal, unavailable-key
+reporting and redacted standalone output. The first targeted test run hit
+Vite 5's known `node:sqlite` rewrite; using the existing memory package's
+`createRequire` loading pattern resolved it without a dependency/config change.
+
+Required repository validation: typecheck passed, lint 0 errors / 7 existing
+warnings, contrast passed. Full suite: **43 files passed / 2 failed; 314 tests
+passed / 3 failed**. Failures were existing command cold-start/approval and
+omnibox focus checks, not the new spike tests. A targeted rerun of the two
+files still failed cold-start (held exit 2 vs expected 0) and toolbar Escape
+focus restoration (17 passed / 2 failed). No unrelated production fix or
+passing full-suite result is claimed.
+
+Remaining S6 measurements, all **not run**:
+
+- Person-approved installed Chrome profile: actual cookie versions, key
+  unwrap/decryption counts, bookmark/history counts and cleanup.
+- Google and a bank selected by the person: sign in manually inside Aether
+  with the intended Chrome UA/client hints; record accepted/refused,
+  persistence after restart, and shared Human/Agent session behavior. Do not
+  collect passwords, OTPs, balances, cookie values or page dumps.
+- macOS/Linux key stores where those environments are available.
+
+S6 remains open. Do not claim the fallback sign-in path works on sites not
+measured or infer real App-Bound resistance from the synthetic sentinel.
+
+### In-app importer addendum
+
+The person subsequently requested a portable first-run/Settings importer,
+not a profile path specific to their device. Tasks 5.2–5.3 now discover
+profiles in OS-relative Chrome locations, offer a native folder picker and
+import explicitly selected data into Personal. No personal profile was read
+while implementing it. The production Windows DPAPI helper is also tested
+with a generated wrapped key. App-Bound/partitioned cookies and unsupported
+platform encryption are reported as skips. macOS Keychain/Linux libsecret
+integration and Google/bank acceptance remain unimplemented/unmeasured;
+this implementation does not close S6.
+
+The local Electron fixture imports bookmarks/history and a plaintext cookie,
+reports v20 skips, persists cookies after restart, refuses Agent-context
+import commands and checks actual HTTP UA/basic client-hint headers against
+the bundled Chromium version. Source copies are removed. Seven core tests
+and four UI tests pass. Latest full validation after the importer/UI:
+typecheck, lint (0 errors / 7 existing warnings), 24 contrast checks and
+**47 files / 328 tests** passed without retries. Earlier test failures and
+fixes are retained in `AUDIT.md`; no two-consecutive-phase-exit sign-off is
+claimed. This is an app first-run feature, not a packaged-installer wizard.
+
 ## S10: host support for the command-plus-skill connection
 
 Open. It needs each real host (Claude Code, VS Code Copilot, Antigravity,

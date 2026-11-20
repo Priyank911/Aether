@@ -17,11 +17,11 @@ The perception, action, policy and memory packages from 2.0 are kept as the engi
 | 1 | Code Mode (`aether_exec`) and Smart Landing on the 2.0 engine | Done 2026-11-18 |
 | 2 | Electron core: Spaces, sleeping tabs, agent host window, watchdog, filter, hardening, SQLite | Done 2026-11-18 (24 test files, 201 tests) |
 | 3 | Hands-free connection: app service, `aether` command, `/aether` skill linked into every host, installer, Code Mode inside the app | Core implemented; S10 and clean-profile install acceptance remain open; static review found correctness gaps (see `AUDIT.md`) |
-| 4 | Shell UI: the Chrome-like design, Agent bar, side panel, overlay, browser basics, Settings | **In progress**; renderer startup/build-path repair verified 2026-11-20; remaining UI and exit checks are not complete |
-| 5 | Chrome import and per-Space downloads | Planned |
+| 4 | Shell UI: the Chrome-like design, Agent bar, side panel, overlay, browser basics, Settings | **In progress**; tasks 4.1–4.9 implemented with the scope below; 4.10 keyboard automation has an intermittent initial-focus failure; NVDA/manual acceptance and D4 remain open |
+| 5 | Chrome import and per-Space downloads | **In progress**: device-independent Chrome importer, first-run offer and Settings entry implemented; latest validation 47 files / 328 tests passed. S6 live sign-in/other-OS encryption acceptance, downloads and file-deletion confirmation remain open |
 | 6 | Retire the extension and native host, measure v3 | Planned |
 
-Current implementation review and the remaining work are recorded in [`AUDIT.md`](AUDIT.md). On 2026-11-20, tasks 4.1–4.3 passed typecheck, lint (7 warnings), 24 contrast checks and 36 test files / 273 tests with a single test fork. Concurrent browser-fixture instability is recorded in the audit. Task 4.4 has an ordering conflict requiring clarification: its §10.5 shortcuts include Find/History/bookmark UI from tasks 4.7–4.8 and Downloads from Phase 5; see the audit. This is not a Phase 3 or Phase 4 exit sign-off.
+Current implementation review and remaining work are recorded in [`AUDIT.md`](AUDIT.md). On 2026-11-20, typecheck, lint (0 errors, 7 existing warnings), 24 contrast checks and 44 test files / 312 tests passed with a single test fork and no retries. The Activity/Memory panel, decision cards, acting shield, Find, pixel-art new tab, browser basics and human-only Settings are implemented. Native shortcuts were wired with their features; Downloads and Ctrl+J remain Phase 5 work, not a working placeholder. OAuth opener-preserving popups and manual platform acceptance remain open. Task 4.10 evidence and its unrun NVDA checklist are in [`A11Y.md`](A11Y.md). The latest repeat failed the keyboard test's initial-focus assertion (311 passed / 1 failed); two consecutive passing exit runs are not established. This is not a Phase 3 or Phase 4 exit sign-off; S10/clean-profile installation, NVDA/manual acceptance and D4 remain outstanding.
 
 Baseline before Phase 0 (2026-11-18): 17 test files, 146 tests, all passing; `pnpm typecheck` and `pnpm lint` clean (2 pre-existing lint warnings). After Phase 2: 24 test files, 201 tests, all passing; lint 0 errors, 5 pre-existing warnings.
 
@@ -777,7 +777,7 @@ Work one phase at a time, in order, and one task at a time inside a phase. After
 | Id | Question | Blocks | Status |
 |---|---|---|---|
 | S5 | Sandbox. Does worker plus `vm` (with `codeGeneration` off and frozen intrinsics) resist the known escape classes? Same question for a sandboxed hidden renderer. Also: does `worker.terminate()` stop `while (true) {}`, and does a `space.*` round trip take under 10 ms in each? | Phase 1 | Done: Design A |
-| S6 | Chrome import. Cookie decryption on Windows (v10 vs v20 App-Bound), macOS and Linux. Bookmarks and history. Google and one bank: does sign-in work inside Electron with the Chrome user agent? | Phase 5 | Open |
+| S6 | Chrome import. Cookie decryption on Windows (v10 vs v20 App-Bound), macOS and Linux. Bookmarks and history. Google and one bank: does sign-in work inside Electron with the Chrome user agent? | Phase 5 | Partial: Windows synthetic DPAPI/v10 probe and 5 regression tests pass; actual Chrome/v20/sign-in and other OS measurements not run; see SPIKES.md |
 | S7 | Electron CDP and views. Auto-attach to cross-origin iframes; lazy loading and `IntersectionObserver` in a view that is not shown; memory freed on destroy; per-page memory. | Phase 2 | Done: agent host window, plus the occlusion addendum |
 | S8 | Shell Overlay view. Does a transparent view block the person's input over a tab while engine CDP input still reaches the page? Absent from `capturePage`? Input passed through at once when removed? | Phase 2 | Done: works; omnibox focus inside the overlay is left to Phase 4 |
 | S9 | SQLite in Electron: `node:sqlite` vs `better-sqlite3` rebuilt. Feeds D2. | Phase 2 | Done: `node:sqlite` |
@@ -921,6 +921,20 @@ Exit tests for Phase 4:
 7. Decision D4 (vertical tabs) is put to the person.
 
 ### Phase 5. Chrome import and per-Space downloads
+
+Implementation note (2026-11-20): the person explicitly requested moving to
+this phase while Phase 4 acceptance remains open, then explicitly asked
+for a generic in-app import option rather than a device-specific profile
+probe. Tasks 2–3 now provide OS-relative discovery, a native folder picker,
+selectable bookmarks/history/cookies and an itemized import report. No
+personal profile was read during implementation. Fixture evidence is in
+`SPIKES.md`; task evidence and earlier failing runs are in `AUDIT.md`.
+The latest full typecheck/lint/contrast/test run passed: 47 files / 328 tests,
+with 7 existing lint warnings and no retries. This is not a Phase 4/5 exit
+sign-off or permission to retire the legacy path. S6's real sign-in and
+macOS/Linux encryption measurements remain open; those encrypted cookies
+are explicitly skipped, not represented as supported. Downloads and
+Space-file deletion confirmation are still the next ordered tasks.
 
 Tasks, in order:
 1. Run S6 on Windows first, then macOS and Linux where available.

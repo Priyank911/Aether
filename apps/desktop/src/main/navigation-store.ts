@@ -51,9 +51,34 @@ export class NavigationStore {
     this.save('history', entry);
   }
 
-  /** Storage groundwork only; no bookmark UI or model-facing capability. */
+  /** Local bookmark storage; never a model-facing capability. */
   public bookmark(entry: NavigationEntry): void {
     this.save('bookmark', entry);
+  }
+
+  /** Merge imports without duplicating visits or replacing a person's newer entries. */
+  public importEntries(kind: 'history' | 'bookmark', entries: ReadonlyArray<{ url: string; title: string; at: number; visits: number }>): number {
+    const table = kind === 'history' ? 'navigation_history' : 'navigation_bookmarks';
+    const statement = this.db.prepare(`INSERT INTO ${table} (space_id, url, title, visited_at, visits) VALUES ('personal', ?, ?, ?, ?)
+      ON CONFLICT(space_id, url) ${kind === 'bookmark' ? 'DO NOTHING' : `DO UPDATE SET title = excluded.title, visited_at = excluded.visited_at, visits = MAX(${table}.visits, excluded.visits) WHERE excluded.visited_at > ${table}.visited_at`}`);
+    let imported = 0;
+    this.db.exec('BEGIN');
+    try {
+      for (const raw of entries) {
+        const entry = NavigationEntrySchema.parse({ ...raw, spaceId: 'personal' });
+        imported += Number(statement.run(entry.url, entry.title, entry.at ?? 0, raw.visits).changes);
+      }
+      this.db.exec('COMMIT');
+      return imported;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
+  public get importOffer(): boolean {
+    return !this.db.prepare('SELECT value FROM settings WHERE key = ?').get('import_offer_seen');
+  }
+
+  public dismissImportOffer(): void {
+    this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('import_offer_seen', 'true');
   }
 
   public updateTitle(spaceId: string, url: string, title: string): void {

@@ -102,7 +102,7 @@ export default function App() {
       <TabStrip snapshot={snap} entry={entry} send={send} onNewTab={newTab} />
       <Toolbar snapshot={snap} tab={activeTab} inputRef={omniboxRef} send={send} notice={notice} />
       <BookmarksBar snapshot={snap} send={send} />
-      {snap.settings && <SettingsPage key={activeTab?.id} settings={snap.settings} top={snap.chromeHeight ?? 76} right={snap.panelWidth ?? 0} />}
+      {snap.settings && <SettingsPage key={activeTab?.id} settings={snap.settings} browserImport={snap.browserImport} top={snap.chromeHeight ?? 76} right={snap.panelWidth ?? 0} />}
       {activeTab?.state === 'crashed' && <main className="tab-crashed" style={{ top: snap.chromeHeight ?? 76, right: snap.panelWidth ?? 0 }}><div><h1>This tab stopped working</h1><p>Your other tabs are still available. Reload to open this page again.</p><button type="button" onClick={() => send({ type: 'nav.reload' })}>Reload page</button></div></main>}
       <AgentBar entry={entry} send={send} visible={snap.agentBarVisible} />
       {entry.space.kind === 'agent' && entry.frame && ['acting', 'resuming', 'waiting_human'].includes(entry.frame.state) && <div className={`viewport-frame ${entry.frame.state === 'waiting_human' ? 'waiting' : 'acting'}`} aria-hidden="true" style={{ top: snap.chromeHeight ?? (snap.agentBarVisible ? 108 : 76), right: snap.panelWidth ?? 0 }} />}

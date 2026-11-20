@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AetherConfigSchema } from './config.js';
+import { ImportSelectionSchema, ImportStateSchema } from './browser-import.js';
 import { HumanReplySchema, MemoryCommandSchema, MemoryListingSchema, RunControlSchema, RunStateFrameSchema } from './schemas.js';
 import { MilestoneSchema, SpaceFrameSchema, SpaceIdSchema, SpaceSchema, SpaceRunStateSchema, TabRecordSchema } from './spaces.js';
 
@@ -78,6 +79,10 @@ export const ShellCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('history.open') }),
   z.object({ type: z.literal('settings.open') }),
   z.object({ type: z.literal('settings.save'), settings: ShellSettingsSchema }),
+  z.object({ type: z.literal('import.discover') }),
+  z.object({ type: z.literal('import.choose') }),
+  z.object({ type: z.literal('import.start'), profileId: z.string().uuid(), selection: ImportSelectionSchema }),
+  z.object({ type: z.literal('import.dismiss') }),
   z.object({ type: z.literal('bookmark.toggle') }),
   z.object({ type: z.literal('bookmarks.toggle') }),
   z.object({ type: z.literal('space.switch'), spaceId: SpaceIdSchema }),
@@ -132,6 +137,7 @@ export const ShellSnapshotSchema = z.object({
   omnibox: OmniboxStateSchema.optional(),
   find: z.object({ text: z.string(), active: z.number().int(), total: z.number().int(), focus: z.number().int().nonnegative() }).optional(),
   settings: ShellSettingsSchema.optional(),
+  browserImport: ImportStateSchema.optional(),
   browserPrompt: BrowserPromptSchema.optional(),
   actionTarget: z.object({ tabId: TabId, x: z.number().finite(), y: z.number().finite(), timestamp: z.number().nonnegative() }).optional(),
   toast: z.object({ id: z.number().int().nonnegative(), text: z.string().max(500) }).optional(),

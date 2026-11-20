@@ -13,6 +13,7 @@ import type { SpaceManager } from './space-manager.js';
 import type { ShellWindow } from './shell-window.js';
 import type { ShellBridge } from './shell-bridge.js';
 import type { NavigationStore } from './navigation-store.js';
+import type { ImportController } from './import/import-controller.js';
 import { NavigationSeedSchema, DesktopRunFrameSchema, ShellTestInputSchema, SpaceSchema, TabRecordSchema } from '@aether/shared';
 
 /*
@@ -29,6 +30,7 @@ export interface TestControlDeps {
   shellWindow: ShellWindow;
   store: SpaceStore;
   navigationStore: NavigationStore;
+  importer: ImportController;
   bridge: ShellBridge;
   watchdog: MemoryWatchdog;
   client: CDPClient;
@@ -76,6 +78,16 @@ export function startTestControl(file: string, deps: TestControlDeps): Server {
         })),
       })),
     }),
+    importProfileFolder: async (args) => {
+      await deps.importer.choose(async () => text(args.directory));
+      deps.bridge.push();
+    },
+    importState: () => deps.importer.state(),
+    persistentCookies: async () => {
+      const { session } = await import('electron');
+      // Test-only: return names/flags, never session values.
+      return (await session.fromPartition('persist:aether').cookies.get({})).map(cookie => ({ name: cookie.name, domain: cookie.domain, secure: cookie.secure, httpOnly: cookie.httpOnly }));
+    },
     seedNavigation: (args) => {
       const entry = NavigationSeedSchema.parse(args);
       if (entry.kind === 'bookmark') deps.navigationStore.bookmark(entry);

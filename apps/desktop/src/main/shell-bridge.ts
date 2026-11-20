@@ -1,9 +1,10 @@
-import { app, ipcMain, Menu, type WebContents } from 'electron';
+import { app, dialog, ipcMain, Menu, type WebContents } from 'electron';
 import type { MemoryStore } from '@aether/memory';
 import type { MemoryListing } from '@aether/shared';
 import { shellMemory } from './shell-memory.js';
 import { NavigationEntrySchema, ShellCommandSchema, type OmniboxState, type ShellCommand, type ShellSnapshot, type ShellTab } from '@aether/shared';
 import type { ShellSettingsStore } from './shell-settings.js';
+import type { ImportController } from './import/import-controller.js';
 import type { BrowserPrompts } from './browser-prompts.js';
 import { installBrowserBasics } from './browser-basics.js';
 import { browserMenuTemplate } from './browser-menu.js';
@@ -65,6 +66,7 @@ export interface ShellBridgeOptions {
   memoryStore?: MemoryStore;
   prompts?: BrowserPrompts;
   settingsStore?: ShellSettingsStore;
+  importer?: ImportController;
 }
 
 export class ShellBridge {
@@ -82,6 +84,7 @@ export class ShellBridge {
   private readonly memoryStore?: MemoryStore;
   private readonly prompts?: BrowserPrompts;
   private readonly settingsStore?: ShellSettingsStore;
+  private readonly importer?: ImportController;
   private lastPromptId = 0;
   private spaceMenuOpen = false;
   private overlayRequested = false;
@@ -107,6 +110,8 @@ export class ShellBridge {
     this.memoryStore = options.memoryStore;
     this.prompts = options.prompts;
     this.settingsStore = options.settingsStore;
+    this.importer = options.importer;
+    this.importer?.on('changed', () => this.schedule());
     this.prompts?.on('changed', () => { this.syncOverlay(); this.schedule(); });
     this.prompts?.on('notice', (text: string) => this.showToast(text));
     ipcMain.handle('aether:command', async (event, raw: unknown): Promise<CommandResult> => {
@@ -195,6 +200,7 @@ export class ShellBridge {
     const settingsVisible = this.shown()?.kind === 'human' && this.shown()?.url === 'aether://settings/';
     this.window.setInternalPage(settingsVisible);
     if (settingsVisible && this.settingsStore) snapshot.settings = this.settingsStore.read();
+    if (settingsVisible && this.importer) snapshot.browserImport = this.importer.state();
     snapshot.chromeHeight = this.window.chromeHeight();
     clearTimeout(this.doneTimer);
     if (remaining > 0) this.doneTimer = setTimeout(() => this.push(), remaining);
@@ -425,6 +431,21 @@ export class ShellBridge {
         if (this.memoryStore) this.memoryListing = shellMemory(this.memoryStore, { type: 'aether.memory', op: 'list' });
         this.schedule();
         return { ok: true };
+      case 'import.discover':
+      case 'import.choose':
+      case 'import.start':
+      case 'import.dismiss': {
+        if (current?.kind !== 'human' || current.url !== 'aether://settings/' || !this.importer) return { ok: false, error: 'Open Settings in Personal to import browser data.' };
+        if (command.type === 'import.discover') await this.importer.discover();
+        else if (command.type === 'import.dismiss') this.importer.dismissOffer();
+        else if (command.type === 'import.start') await this.importer.import(command.profileId, command.selection);
+        else await this.importer.choose(async () => {
+          const result = await dialog.showOpenDialog(this.window.window, { title: 'Choose a Chrome profile folder', properties: ['openDirectory'], buttonLabel: 'Use this profile' });
+          return result.canceled ? undefined : result.filePaths[0];
+        });
+        this.push();
+        return { ok: true };
+      }
       case 'history.open':
         manager.openTab(manager.visibleSpaceId, 'aether://history/', { activate: true });
         return { ok: true };
