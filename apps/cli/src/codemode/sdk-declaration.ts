@@ -13,6 +13,8 @@ interface ActionItem { op: 'click' | 'fill' | 'key' | 'hover' | 'scroll' | 'dial
 interface ActDelta { ok: number; total: number; stoppedBy?: 'failure' | 'navigation' | 'dialog' | 'person'; delta: string; url: string }
 declare const space: {
   open(url: string, opts?: { newTab?: boolean }): Promise<PageBrief>;
+  openTabs(urls: string[], opts?: { lazy?: boolean }): Promise<{ tabIds: string[]; live: number; hibernated: number }>;
+  switchTab(tabId: string): Promise<PageBrief>;
   mapPages<T>(urls: string[], fn: (page: PageBrief) => T | Promise<T>): Promise<Array<{ url: string; data?: T; error?: string }>>;
   tabs(): Promise<Array<{ id: string; title: string; url: string; state: string }>>;
   skim(): Promise<PageBrief>;

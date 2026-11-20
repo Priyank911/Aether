@@ -90,7 +90,10 @@ export class SessionSpaceEngine implements SpaceEngine {
         this.session.setStep(String(args[0]), 'script');
         return undefined;
       case 'tabs': {
-        return this.session.listTabs().map((tab) => ({ id: tab.id, title: tab.title, url: tab.url, state: tab.state === 'loading' || tab.state === 'live' ? 'live' : tab.state }));
+        return this.session.listTabs().map((tab) => {
+          run.markRead(originOf(tab.url) ?? 'opaque');
+          return { id: tab.id, title: tab.title, url: tab.url, state: tab.state === 'loading' || tab.state === 'live' ? 'live' : tab.state };
+        });
       }
       case 'openTabs': {
         const options = (args[1] ?? {}) as { lazy?: boolean };

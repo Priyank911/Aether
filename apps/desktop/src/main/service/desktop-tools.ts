@@ -1,4 +1,5 @@
 import type { CodeModeHost } from '@aether/codemode';
+import { wrapUntrustedOrigins } from '@aether/policy';
 import { renderReport, toToolResult, type ToolContent, type ToolOutput } from '@aether/engine';
 import {
   AetherDoneParamsSchema,
@@ -101,15 +102,20 @@ export class DesktopTools {
     if (problem) return result(problem, true);
     if (params.op === 'list') {
       const running = this.options.codeMode.runningSpaces();
+      const origins = new Set<string>();
       const lines = this.options.manager
         .list()
         .filter((entry) => entry.record.kind === 'agent' && !entry.record.archived)
         .map((entry) => {
           const state = entry.record.state === 'idle' ? 'idle' : entry.record.state;
-          const tabs = entry.tabs.map((tab) => `${tab.title || tab.url || 'New tab'} (${tab.state})`).join('; ');
+          const tabs = entry.tabs.map((tab) => {
+            try { const origin = new URL(tab.url).origin; origins.add(origin === 'null' ? 'opaque' : origin); }
+            catch { origins.add('opaque'); }
+            return `${tab.title || tab.url || 'New tab'} (${tab.state})`;
+          }).join('; ');
           return `- ${entry.record.name} [${state}]: ${entry.tabs.length} tabs${tabs ? `: ${tabs}` : ''}`;
         });
-      return result([`Agent Spaces:`, ...lines, running.length > 0 ? `running scripts: ${running.join(', ')}` : 'no script running'].join('\n'));
+      return result([`Agent Spaces:`, ...(lines.length ? [origins.size ? wrapUntrustedOrigins(lines.join('\n'), [...origins]) : lines.join('\n')] : []), running.length > 0 ? `running scripts: ${running.join(', ')}` : 'no script running'].join('\n'));
     }
     const spaceId = spaceIdFromName(params.space ?? '');
     if (params.op === 'focus') {

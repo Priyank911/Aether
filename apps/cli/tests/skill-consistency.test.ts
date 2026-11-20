@@ -35,6 +35,11 @@ describe('the skill and method text (Phase 3.6)', () => {
     expect(run.stdout.indexOf(CODEMODE_INSTRUCTIONS)).toBeLessThan(run.stdout.indexOf(SPACE_SDK_DECLARATION));
   });
 
+  it('publishes tab creation and switching already available in the runtime SDK', () => {
+    expect(SPACE_SDK_DECLARATION).toContain('openTabs(urls: string[]');
+    expect(SPACE_SDK_DECLARATION).toContain('switchTab(tabId: string)');
+  });
+
   it('the aether_exec description carries the same SDK declaration', () => {
     expect(AETHER_EXEC_DESCRIPTION).toContain(SPACE_SDK_DECLARATION);
   });

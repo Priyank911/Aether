@@ -180,6 +180,35 @@ return space.mapPages(urls, (page) => ({ title: page.title, price: page.product?
     expect(JSON.parse(big.json ?? '')).toMatch(/limited to 64 KB/);
   });
 
+  it('keeps page provenance when stored data is read by a later script, including errors and logs', async () => {
+    const { host } = setup();
+    await host.exec({ space: 'Saved page', thought: 'Read once', code: "const page = await space.open('https://shop.example/'); await space.state.set('title', page.title);" });
+    const restored = complete(await host.exec({ space: 'Saved page', thought: 'Read saved title', code: "return space.state.get('title');" }));
+    expect(restored).toMatchObject({ json: '"Shop"', untrusted: true, origins: ['https://shop.example'] });
+    const error = await host.exec({ space: 'Saved page', thought: 'Use saved title', code: "const title = await space.state.get('title'); console.log(title); throw new Error(title);" });
+    expect(error.outcome).toMatchObject({ status: 'error', untrusted: true, origins: ['https://shop.example'], message: 'Shop' });
+    expect(error.logs).toEqual(['Shop']);
+    await host.exec({ space: 'Saved page', thought: 'Copy saved title', code: "await space.state.set('copy', await space.state.get('title'));" });
+    expect(complete(await host.exec({ space: 'Saved page', thought: 'Read copy', code: "return space.state.get('copy');" })).untrusted).toBe(true);
+  });
+
+  it('does not taint another Space or a later trusted replacement, and clears provenance with state', async () => {
+    const { host } = setup();
+    await host.exec({ space: 'A', thought: 'Read', code: "await space.state.set('literal', 'local'); const page = await space.open('https://shop.example/'); await space.state.set('value', page.title);" });
+    expect(complete(await host.exec({ space: 'A', thought: 'Local only', code: "return space.state.get('literal');" })).untrusted).toBe(false);
+    expect(complete(await host.exec({ space: 'B', thought: 'Other Space', code: "return space.state.get('value');" })).untrusted).toBe(false);
+    await host.exec({ space: 'A', thought: 'Replace with literal', code: "await space.state.set('value', 'replacement');" });
+    expect(complete(await host.exec({ space: 'A', thought: 'Read replacement', code: "return space.state.get('value');" })).untrusted).toBe(false);
+    host.clearState('a');
+    expect(complete(await host.exec({ space: 'A', thought: 'Cleared', code: "return space.state.get('value');" }))).toMatchObject({ json: undefined, untrusted: false });
+  });
+
+  it('enforces the state budget in UTF-8 bytes rather than UTF-16 characters', async () => {
+    const { host } = setup();
+    const outcome = complete(await host.exec({ thought: 'Check budget', code: "try { await space.state.set('value', '界'.repeat(25000)); return 'stored'; } catch (error) { return error.code; }" }));
+    expect(outcome.json).toBe('"invalid_args"');
+  });
+
   it('refuses a runaway return value instead of cutting it', async () => {
     const { host } = setup();
     expect(failed(await host.exec({ thought: 't', code: `return 'x'.repeat(300000);` })).message).toMatch(/one returned string is 293 KB, over the 256 KB limit/);

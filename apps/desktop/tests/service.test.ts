@@ -208,6 +208,23 @@ describe('App service (Phase 3.4)', () => {
     client.close();
   }, 90000);
 
+  it('wraps tab-only reads, Space summaries and state restored in a later script', async () => {
+    const client = await connectService(config);
+    const space = 'Provenance check';
+    const seeded = await execToEnd(client, { space, thought: 'Save a page title', code: `const page = await space.open(${JSON.stringify(`${fixtures.mainBaseUrl}/shop/item/1`)}); await space.state.set('title', page.title); return {saved:true};` });
+    expect(seeded.isError).toBe(false);
+    for (const code of ["return space.tabs();", "return space.state.get('title');", "throw new Error(await space.state.get('title')); "]) {
+      const reply = await execToEnd(client, { space, thought: 'Read saved metadata', code });
+      expect(reply.text).toMatch(/\n<page untrusted nonce=\w+/);
+      expect(reply.text).toContain(new URL(fixtures.mainBaseUrl).origin);
+      expect(JSON.stringify(reply.meta)).not.toContain('/shop/item/1');
+    }
+    const listing = await client.request('aether_spaces', { op: 'list' });
+    expect(listing.text).toMatch(/Agent Spaces:\n<page untrusted nonce=\w+/);
+    expect(listing.text).toContain(space);
+    client.close();
+  }, 90000);
+
   it('runs two clients in parallel, each in its own Space, with no interference', async () => {
     const one = await connectService(config);
     const two = await connectService(config);

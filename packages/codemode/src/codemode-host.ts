@@ -75,7 +75,7 @@ export class CodeModeHost {
   private readonly options: Required<Omit<CodeModeHostOptions, 'onLog'>> & Pick<CodeModeHostOptions, 'onLog'>;
   private readonly active = new Map<string, ActiveRun>();
   private readonly held = new Map<string, { spaceId: string; done: Promise<ExecReport>; expires?: NodeJS.Timeout }>();
-  private readonly state = new Map<string, Map<string, string>>();
+  private readonly state = new Map<string, Map<string, { text: string; origins: string[] }>>();
 
   public constructor(engine: SpaceEngine, options: CodeModeHostOptions = {}) {
     this.engine = engine;
@@ -187,23 +187,25 @@ export class CodeModeHost {
     const parsed = parseSpaceCall(method, args);
     if (!parsed.ok) throw new CodeModeCallError('invalid_args', parsed.message);
     if (method === 'stateGet') {
-      const text = this.state.get(context.spaceId)?.get(String(parsed.args[0]));
-      return text === undefined ? undefined : JSON.parse(text);
+      const entry = this.state.get(context.spaceId)?.get(String(parsed.args[0]));
+      for (const origin of entry?.origins ?? []) context.markRead(origin);
+      return entry === undefined ? undefined : JSON.parse(entry.text);
     }
     if (method === 'stateSet') return this.setState(context.spaceId, String(parsed.args[0]), parsed.args[1]);
     return this.engine.call(method, parsed.args, context);
   }
 
   private setState(spaceId: string, key: string, value: unknown): undefined {
-    const store = this.state.get(spaceId) ?? new Map<string, string>();
+    const store = this.state.get(spaceId) ?? new Map<string, { text: string; origins: string[] }>();
     if (value === undefined) store.delete(key);
     else {
       const text = JSON.stringify(value);
-      const size = [...store.entries()].filter(([name]) => name !== key).reduce((sum, [name, stored]) => sum + name.length + stored.length, 0);
-      if (size + key.length + text.length > CODEMODE_LIMITS.maxStateBytes) {
+      const size = [...store.entries()].filter(([name]) => name !== key).reduce((sum, [name, stored]) => sum + Buffer.byteLength(name, 'utf8') + Buffer.byteLength(stored.text, 'utf8'), 0);
+      if (size + Buffer.byteLength(key, 'utf8') + Buffer.byteLength(text, 'utf8') > CODEMODE_LIMITS.maxStateBytes) {
         throw new CodeModeCallError('invalid_args', `space.state is limited to ${CODEMODE_LIMITS.maxStateBytes / 1024} KB per Space; store ids and short fields, not page text`);
       }
-      store.set(key, text);
+      // Persist the run's provenance with the serialized value, not a mutable run-owned Set.
+      store.set(key, { text, origins: [...(this.active.get(spaceId)?.origins ?? [])] });
     }
     this.state.set(spaceId, store);
     return undefined;
