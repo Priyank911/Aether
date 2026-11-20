@@ -1,4 +1,4 @@
-import { app, type Session } from 'electron';
+import { app, type Session, type WebContents } from 'electron';
 
 /*
  * Electron security settings (plan 3.1, section 9.7) that apply to every
@@ -11,6 +11,8 @@ const HUMAN_ALLOWED = new Set(['fullscreen', 'clipboard-sanitized-write', 'point
 
 export interface PermissionOwner {
   kindOf(webContentsId: number): 'human' | 'agent' | 'shell' | undefined;
+  requestPermission?(contents: WebContents, permission: string, requestingUrl: string, callback: (allow: boolean) => void): void;
+  checkPermission?(contents: WebContents, permission: string, origin: string): boolean;
 }
 
 export function hardenApp(): void {
@@ -26,13 +28,15 @@ export function hardenApp(): void {
  * brings the permission bubble.
  */
 export function hardenSession(target: Session, owners: PermissionOwner): void {
-  target.setPermissionRequestHandler((contents, permission, callback) => {
+  target.setPermissionRequestHandler((contents, permission, callback, details) => {
     const kind = owners.kindOf(contents.id);
-    callback(kind === 'human' && HUMAN_ALLOWED.has(permission));
+    if (kind === 'human' && HUMAN_ALLOWED.has(permission)) { callback(true); return; }
+    if (kind === 'human' && owners.requestPermission) owners.requestPermission(contents, permission, details.requestingUrl, callback);
+    else callback(false);
   });
-  target.setPermissionCheckHandler((contents, permission) => {
+  target.setPermissionCheckHandler((contents, permission, origin) => {
     const kind = contents ? owners.kindOf(contents.id) : undefined;
-    return kind === 'human' && HUMAN_ALLOWED.has(permission);
+    return kind === 'human' && (HUMAN_ALLOWED.has(permission) || Boolean(contents && owners.checkPermission?.(contents, permission, origin)));
   });
   // Downloads arrive with Step 5 (per-Space folders with a disk check); until then they are refused.
   target.on('will-download', (event) => event.preventDefault());

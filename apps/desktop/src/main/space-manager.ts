@@ -3,9 +3,10 @@ import { EventEmitter } from 'node:events';
 import { session as electronSession, type WebContentsView } from 'electron';
 import type { ElectronDebuggerTransport } from '@aether/cdp';
 import type { SpaceStore } from '@aether/memory';
-import { HUMAN_SPACE_ID, spaceIdFromName, type Milestone, type MilestoneStatus, type RunStateFrame, type Space, type SpaceFrame, type SpacePartition } from '@aether/shared';
+import { HUMAN_SPACE_ID, spaceIdFromName, type Milestone, type MilestoneStatus, type Space, type SpaceFrame, type SpacePartition } from '@aether/shared';
 import type { AgentHost } from './agent-host.js';
 import { Tab } from './tab.js';
+import { NEW_TAB_URL } from './internal-pages.js';
 
 /*
  * Spaces and their tabs (plan 3.1, sections 5.1 and 5.2). The Human Space
@@ -90,7 +91,7 @@ export class SpaceManager extends EventEmitter {
     for (const stored of store.spaces()) {
       if (stored.archived && stored.kind === 'agent') continue;
       const entry = this.adopt({ ...stored, state: 'idle' });
-      for (const tab of store.tabs(stored.id)) entry.tabs.push(this.makeTab(entry, tab.url, tab));
+      for (const tab of store.tabs(stored.id)) entry.tabs.push(this.makeTab(entry, stored.kind === 'human' && tab.url === 'about:blank' ? NEW_TAB_URL : tab.url, tab));
       entry.activeTabId = entry.tabs.some((tab) => tab.id === stored.activeTab) ? stored.activeTab : entry.tabs[0]?.id;
     }
     if (!this.spaces.has(HUMAN_SPACE_ID)) {
@@ -98,12 +99,18 @@ export class SpaceManager extends EventEmitter {
       store.saveSpace(personal.record);
     }
     const personal = this.entry(HUMAN_SPACE_ID);
-    if (personal.tabs.length === 0) this.openTab(HUMAN_SPACE_ID, 'about:blank', { activate: true });
+    if (personal.tabs.length === 0) this.openTab(HUMAN_SPACE_ID, NEW_TAB_URL, { activate: true });
     this.showSpace(HUMAN_SPACE_ID);
   }
 
   public list(): ReadonlyArray<{ record: Space; tabs: ReadonlyArray<Tab>; activeTabId?: string }> {
     return [...this.spaces.values()];
+  }
+
+  public archivedSpaces(): Space[] {
+    return this.options.store.spaces()
+      .filter((stored) => stored.kind === 'agent' && stored.archived && !this.spaces.has(stored.id))
+      .map((stored) => ({ ...stored, state: 'idle' }));
   }
 
   public get visibleSpaceId(): string {
@@ -183,6 +190,16 @@ export class SpaceManager extends EventEmitter {
 
   /** Show a Space in the main window; its active tab wakes if it was asleep. */
   public showSpace(spaceId: string): void {
+    if (!this.spaces.has(spaceId)) {
+      const { store } = this.options;
+      const stored = store.spaces().find((record) => record.id === spaceId && record.kind === 'agent' && record.archived);
+      if (stored) {
+        const restored = this.adopt({ ...stored, state: 'idle', archived: false });
+        for (const tab of store.tabs(spaceId)) restored.tabs.push(this.makeTab(restored, tab.url, tab));
+        restored.activeTabId = restored.tabs.some((tab) => tab.id === stored.activeTab) ? stored.activeTab : restored.tabs[0]?.id;
+        store.saveSpace(restored.record);
+      }
+    }
     const entry = this.entry(spaceId);
     const previous = this.spaces.get(this.visible);
     this.visible = spaceId;
@@ -214,10 +231,36 @@ export class SpaceManager extends EventEmitter {
       entry.activeTabId = undefined;
       const next = entry.tabs[Math.min(index, entry.tabs.length - 1)];
       if (next) this.activate(entry, next);
-      else if (entry.record.kind === 'human') this.openTab(entry.record.id, 'about:blank', { activate: true });
+      else if (entry.record.kind === 'human') this.openTab(entry.record.id, NEW_TAB_URL, { activate: true });
       else if (this.visible === entry.record.id) this.options.display.show(undefined);
     }
     this.changed(entry.record.id);
+  }
+
+  /** Move the live view itself: navigation history, session and form state survive. */
+  public sendToAgent(tabId: string, targetId: string): void {
+    const tab = this.require(tabId);
+    const source = this.entry(tab.spaceId);
+    const target = this.entry(targetId);
+    if (tab.kind !== 'human' || target.record.kind !== 'agent') throw new Error('Choose a Personal tab and an Agent Space.');
+    if (tab.partition !== partitionFor(targetId, target.record.partition)) throw new Error('This Space uses a separate session. Choose a shared-session Agent Space to keep this tab signed in.');
+    source.tabs.splice(source.tabs.indexOf(tab), 1);
+    if (source.activeTabId === tab.id) {
+      source.activeTabId = undefined;
+      const next = source.tabs[0];
+      if (next) this.activate(source, next); else this.openTab(source.record.id, NEW_TAB_URL, { activate: true });
+    }
+    tab.spaceId = targetId;
+    tab.kind = 'agent';
+    target.tabs.push(tab);
+    target.activeTabId ??= tab.id;
+    if (tab.view) {
+      tab.view.webContents.setBackgroundThrottling(false);
+      this.options.transport.addTarget(tab.id, tab.view.webContents.debugger, () => ({ title: tab.title, url: tab.url }));
+      this.place(tab);
+    }
+    this.changed(source.record.id);
+    this.changed(targetId);
   }
 
   /** Bring back the most recently closed tab of a Space. */
@@ -315,7 +358,7 @@ export class SpaceManager extends EventEmitter {
    * The Space record, the Agent bar and the side panel all read this one
    * state, so they cannot disagree.
    */
-  public setRunFrame(spaceId: string, frame: RunStateFrame): void {
+  public setRunFrame(spaceId: string, frame: Omit<SpaceFrame, 'type' | 'spaceId'>): void {
     const entry = this.spaces.get(spaceId);
     if (!entry) return;
     entry.record.state = frame.state;
@@ -375,14 +418,19 @@ export class SpaceManager extends EventEmitter {
       scrollY: stored?.scrollY,
       lastViewedAt: stored?.lastViewedAt,
     });
-    tab.on('changed', () => this.changed(entry.record.id));
+    tab.on('changed', () => this.changed(tab.spaceId));
+    tab.on('switch-space', (spaceId: string) => {
+      if (this.visible === tab.spaceId && this.spaces.get(tab.spaceId)?.activeTabId === tab.id && (this.spaces.has(spaceId) || this.archivedSpaces().some((space) => space.id === spaceId))) this.showSpace(spaceId);
+    });
+    tab.on('external-protocol', (url: string) => this.emit('external-protocol', tab.id, url));
     tab.on('opened', (target: string) => {
-      if (this.spaces.get(entry.record.id) === entry) this.openTab(entry.record.id, target, { activate: entry.record.kind === 'human', live: true });
+      if (this.spaces.has(tab.spaceId)) this.openTab(tab.spaceId, target, { activate: tab.kind === 'human', live: true });
     });
     tab.on('released', (view: WebContentsView) => {
       this.options.host.remove(view);
       this.options.transport.removeTarget(tab.id, tab.state === 'crashed' ? 'renderer crashed' : 'tab asleep');
-      if (this.shownTab() === undefined && this.visible === entry.record.id && entry.activeTabId === tab.id) this.options.display.show(undefined);
+      // Release fires before Tab clears its view; detach it before its webContents closes.
+      if (this.visible === tab.spaceId && this.spaces.get(tab.spaceId)?.activeTabId === tab.id) this.options.display.show(undefined);
     });
     return tab;
   }

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
-import { app } from 'electron';
+import { app, nativeTheme } from 'electron';
 import type { CDPClient, CDPSession } from '@aether/cdp';
 import type { CodeModeHost } from '@aether/codemode';
 import type { SpaceStore } from '@aether/memory';
@@ -10,6 +10,10 @@ import type { MemoryReading } from './concurrency.js';
 import type { MemoryWatchdog } from './memory-watchdog.js';
 import type { DesktopSpaceEngine } from './service/desktop-engine.js';
 import type { SpaceManager } from './space-manager.js';
+import type { ShellWindow } from './shell-window.js';
+import type { ShellBridge } from './shell-bridge.js';
+import type { NavigationStore } from './navigation-store.js';
+import { NavigationSeedSchema, DesktopRunFrameSchema, ShellTestInputSchema, SpaceSchema, TabRecordSchema } from '@aether/shared';
 
 /*
  * Test control (plan 3.1, Step 2 exit tests). Exists only when the app is
@@ -22,7 +26,10 @@ import type { SpaceManager } from './space-manager.js';
 
 export interface TestControlDeps {
   manager: SpaceManager;
+  shellWindow: ShellWindow;
   store: SpaceStore;
+  navigationStore: NavigationStore;
+  bridge: ShellBridge;
   watchdog: MemoryWatchdog;
   client: CDPClient;
   slots: () => number;
@@ -63,10 +70,65 @@ export function startTestControl(file: string, deps: TestControlDeps): Server {
           url: tab.url,
           title: tab.title,
           state: tab.state,
+          muted: tab.muted,
+          liveMuted: tab.view?.webContents.isAudioMuted(),
           pid: tab.view && !tab.view.webContents.isDestroyed() ? tab.view.webContents.getOSProcessId() : undefined,
         })),
       })),
     }),
+    seedNavigation: (args) => {
+      const entry = NavigationSeedSchema.parse(args);
+      if (entry.kind === 'bookmark') deps.navigationStore.bookmark(entry);
+      else deps.navigationStore.record(entry);
+    },
+    menuTemplate: () => deps.bridge.menuTemplate().map((item) => ({
+      label: item.label,
+      role: item.role,
+      enabled: item.enabled,
+      submenu: Array.isArray(item.submenu) ? item.submenu.map((child) => ({ label: child.label, role: child.role })) : undefined,
+    })),
+    seedArchivedSpace: (args) => {
+      const space = SpaceSchema.parse(args.space);
+      if (space.kind !== 'agent' || !space.archived) throw new Error('expected an archived Agent Space fixture');
+      const tabs = TabRecordSchema.array().parse(args.tabs);
+      deps.store.saveSpace(space);
+      deps.store.saveTabs(space.id, tabs, tabs[0]?.id);
+    },
+    shellTheme: (args) => {
+      if (args.theme !== 'dark' && args.theme !== 'light' && args.theme !== 'system') throw new Error('invalid theme');
+      nativeTheme.themeSource = args.theme;
+    },
+    shellCapture: async (args) => {
+      const view = typeof args.tabId === 'string' ? deps.manager.tab(args.tabId)?.view : args.overlay ? deps.shellWindow.overlay : deps.shellWindow.shell;
+      if (!view) throw new Error('capture target is not live');
+      return (await view.webContents.capturePage()).toPNG().toString('base64');
+    },
+    shellInput: (args) => {
+      const view = typeof args.tabId === 'string' ? deps.manager.tab(args.tabId)?.view : args.overlay ? deps.shellWindow.overlay : deps.shellWindow.shell;
+      if (!view) throw new Error('input target is not live');
+      const event = ShellTestInputSchema.parse(args.event);
+      if (!view.webContents.isFocused()) view.webContents.focus();
+      view.webContents.sendInputEvent(event);
+    },
+    shellEval: (args) => {
+      const view = args.overlay ? deps.shellWindow.overlay : deps.shellWindow.shell;
+      return view.webContents.executeJavaScript(text(args.expression));
+    },
+    shellLayout: (args) => {
+      const shell = deps.shellWindow;
+      if (typeof args.width === 'number' && typeof args.height === 'number') {
+        shell.window.setContentSize(args.width, args.height);
+      }
+      return {
+        content: shell.window.getContentBounds(),
+        shell: shell.shell.getBounds(),
+        page: deps.manager.shownTab()?.view?.getBounds(),
+        overlay: shell.overlay.getBounds(),
+        menuVisible: shell.window.isMenuBarVisible(),
+        overlayAttached: shell.window.contentView.children.includes(shell.overlay),
+      };
+    },
+    setRunFrame: (args) => deps.manager.setRunFrame(text(args.spaceId), DesktopRunFrameSchema.parse(args.frame)),
     agentSpace: (args) => deps.manager.agentSpace(text(args.name), args.partition === 'ephemeral' ? 'ephemeral' : 'persist'),
     openTab: (args) => deps.manager.openTab(text(args.spaceId), text(args.url), { activate: Boolean(args.activate), live: Boolean(args.live) }).id,
     openTabs: (args) => deps.manager.openTabs(text(args.spaceId), (args.urls as unknown[]).map(text), { lazy: Boolean(args.lazy) }),

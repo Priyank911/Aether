@@ -167,7 +167,18 @@ Same script and run as S7. The person's input was simulated as Windows mouse and
 | `capturePage` of the tab where the overlay draws red | White (`rgb(255,255,255)`); the overlay is not in it |
 | Overlay removed: the person clicks | Page +1 at once |
 
-Decision: the Shell Overlay view in plan section 4.4 works as designed. Open item for Step 4: omnibox suggestions in the overlay must keep keyboard focus in the omnibox. That is not covered here.
+Decision: the Shell Overlay view in plan section 4.4 works as designed. The original run did not cover omnibox suggestions keeping keyboard focus in the omnibox.
+
+Task 4.3 integration addendum (2026-11-20, Windows, Electron 45.2.2):
+`apps/desktop/tests/toolbar.e2e.test.ts` sends Electron keyboard and pointer
+input through the opt-in test control channel, without moving the OS cursor.
+Typing and arrow navigation leave the shell input as `document.activeElement`
+while suggestions render in the separately attached overlay. Enter accepts the
+main-process selection; overlay pointer input accepts the clicked destination.
+A hidden listbox beside the input supplies same-document ARIA references;
+those references cannot point into a different WebContents. Main-owned
+selection and query/destination checks cover delayed snapshot and stale-click
+races. This is automated integration evidence, not an NVDA or cross-OS pass.
 
 ### S7 addendum (Step 2, 2026-11-18): occlusion
 

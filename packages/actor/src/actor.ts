@@ -12,6 +12,7 @@ import {
 } from '@aether/perceiver';
 import { ActParamsSchema, type ActionItem } from '@aether/shared';
 import { fill } from './fill.js';
+import { actionTargetPoint } from './action-target.js';
 import { ActionBlockedError, announceAgentInput, assertReachable, centreOf, type Point } from './geometry.js';
 import { parseChord, pressChord } from './keys.js';
 import { clickAt, moveTo, wheelAt } from './mouse.js';
@@ -58,6 +59,8 @@ function isMissingNode(error: unknown): boolean {
 export class Actor {
   private readonly perceiver: Perceiver;
   private readonly watcher: PageWatcher;
+  /** Visual feedback only; undefined coordinates clear an unprojectable child-frame target. */
+  public onActionTarget?: (point: Point | undefined) => void;
 
   constructor(perceiver: Perceiver, watcher: PageWatcher) {
     this.perceiver = perceiver;
@@ -160,6 +163,7 @@ export class Actor {
     const reachableClick = async (resolved: RefTarget): Promise<void> => {
       const point = await centreOf(resolved.session, resolved.backendDOMNodeId);
       await assertReachable(resolved.session, resolved.backendDOMNodeId, point, labelIn(resolved.frameOrdinal));
+      await this.announceTarget(point, resolved, before);
       await clickAt(resolved.session, point);
     };
 
@@ -174,7 +178,11 @@ export class Actor {
           action.value ?? '',
         );
       case 'hover':
-        if (target) await moveTo(target.session, await centreOf(target.session, target.backendDOMNodeId));
+        if (target) {
+          const point = await centreOf(target.session, target.backendDOMNodeId);
+          await this.announceTarget(point, target, before);
+          await moveTo(target.session, point);
+        }
         return undefined;
       case 'key': {
         const chord = parseChord(action.value ?? 'Enter');
@@ -194,6 +202,13 @@ export class Actor {
     }
   }
 
+  private async announceTarget(point: Point, target?: RefTarget, model = this.perceiver.last): Promise<void> {
+    if (!this.onActionTarget) return;
+    const frame = model?.frames.find((candidate) => candidate.ordinal === target?.frameOrdinal);
+    const projected = target ? await actionTargetPoint(this.perceiver.session, frame, model?.frames ?? [], point) : point;
+    try { this.onActionTarget(projected); } catch { /* Visual feedback must never change input delivery. */ }
+  }
+
   private async scroll(target: RefTarget | undefined, direction: string): Promise<void> {
     const session: CDPSession = target?.session ?? this.perceiver.session;
     const metrics = await this.perceiver.session.send<LayoutMetrics>('Page.getLayoutMetrics');
@@ -204,6 +219,7 @@ export class Actor {
     const point: Point = target
       ? await centreOf(target.session, target.backendDOMNodeId)
       : { x: Math.round(metrics.cssLayoutViewport.clientWidth / 2), y: Math.round(height / 2) };
+    await this.announceTarget(point, target);
     await wheelAt(session, point, deltaY);
   }
 

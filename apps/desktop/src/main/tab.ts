@@ -30,8 +30,8 @@ const SCROLL_READ_MS = 500;
 
 export class Tab extends EventEmitter {
   public readonly id: string;
-  public readonly spaceId: string;
-  public readonly kind: SpaceKind;
+  public spaceId: string;
+  public kind: SpaceKind;
   public readonly partition: string;
   public url: string;
   public title: string;
@@ -41,6 +41,9 @@ export class Tab extends EventEmitter {
   public loading = false;
   public muted = false;
   public crashReason?: string;
+  public loadFailure?: string;
+  public authenticationRequired = false;
+  public certificateRefused = false;
   /** When the page view was last created; 0 while asleep since start. */
   public wokenAt = 0;
   private current?: WebContentsView;
@@ -95,6 +98,7 @@ export class Tab extends EventEmitter {
         contextIsolation: true,
         nodeIntegration: false,
         webSecurity: true,
+        plugins: true,
         // Agent pages must keep running timers while no one looks at them (spike S7).
         backgroundThrottling: this.kind === 'human',
         spellcheck: this.kind === 'human',
@@ -102,6 +106,7 @@ export class Tab extends EventEmitter {
     });
     view.setBackgroundColor('#ffffff');
     this.current = view;
+    view.webContents.setAudioMuted(this.muted);
     this.wire(view);
     const target = this.url || 'about:blank';
     const restoreScroll = this.scrollY;
@@ -137,6 +142,7 @@ export class Tab extends EventEmitter {
 
   public navigate(url: string): void {
     this.url = url;
+    this.loadFailure = undefined;
     if (this.current) void this.current.webContents.loadURL(url).catch(() => undefined);
     else this.wake();
     this.emit('changed');
@@ -163,6 +169,8 @@ export class Tab extends EventEmitter {
 
   private wire(view: WebContentsView): void {
     const contents = view.webContents;
+    contents.on('media-started-playing', () => this.emit('changed'));
+    contents.on('media-paused', () => this.emit('changed'));
     contents.on('did-start-loading', () => {
       this.loading = true;
       this.emit('changed');
@@ -172,13 +180,24 @@ export class Tab extends EventEmitter {
       this.emit('changed');
     });
     contents.on('page-title-updated', (_event, title) => {
+      if (this.loadFailure) return;
       this.title = title;
       this.emit('changed');
     });
     const onNavigate = (_event: unknown, url: string): void => {
+      if (url.startsWith('aether://error')) return;
+      this.loadFailure = undefined;
       this.url = url;
       this.emit('changed');
     };
+    contents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+      if (!isMainFrame || code === -3 || url.startsWith('aether:') || this.current !== view) return;
+      this.loadFailure = description;
+      this.url = url;
+      this.loading = false;
+      void contents.loadURL(`aether://error/?url=${encodeURIComponent(url)}&code=${code}`).catch(() => undefined);
+      this.emit('changed');
+    });
     contents.on('did-navigate', onNavigate);
     contents.on('did-navigate-in-page', onNavigate);
     contents.on('page-favicon-updated', (_event, favicons) => {
@@ -195,8 +214,25 @@ export class Tab extends EventEmitter {
       this.emit('changed');
     });
     // A page that opens a window gets a new tab in the same Space instead (plan 3.1, section 9.7).
+    contents.on('will-frame-navigate', (event) => {
+      if (event.url.startsWith('aether:') && (!event.isMainFrame || !contents.getURL().startsWith('aether:'))) event.preventDefault();
+    });
+    contents.on('will-redirect', (event, url) => {
+      if (!/^https?:/i.test(url)) event.preventDefault();
+    });
+    contents.on('will-navigate', (event, url) => {
+      if (url.startsWith('aether:') && !contents.getURL().startsWith('aether:')) { event.preventDefault(); return; }
+      if (!/^(https?|aether|about|blob|data|javascript):/i.test(url)) { event.preventDefault(); this.emit('external-protocol', url); return; }
+      if (url.startsWith('aether://retry') && this.loadFailure) { event.preventDefault(); this.navigate(this.url); return; }
+      if (!url.startsWith('aether://space/')) return;
+      event.preventDefault();
+      if (this.kind === 'human' && /^aether:\/\/newtab\/?$/.test(contents.getURL())) {
+        try { this.emit('switch-space', decodeURIComponent(new URL(url).pathname.slice(1))); } catch { /* Malformed Space links are not followed. */ }
+      }
+    });
     contents.setWindowOpenHandler(({ url }) => {
       if (/^https?:/i.test(url)) this.emit('opened', url);
+      else this.emit('external-protocol', url);
       return { action: 'deny' };
     });
   }

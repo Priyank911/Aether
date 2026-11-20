@@ -1,0 +1,19 @@
+.settings-page { position: absolute; left: 0; bottom: 0; overflow: auto; background: var(--frame); user-select: text; }
+.settings-inner { max-width: 760px; padding: var(--space-6); margin: var(--space-6) auto; }
+.settings-inner header { margin-bottom: var(--space-6); }
+.settings-inner h1 { margin: var(--space-2) 0; font-size: 28px; font-weight: 600; letter-spacing: -.03em; }
+.settings-inner h2 { margin: 0; font-size: var(--panel-title); font-weight: 600; }
+.settings-inner p { color: var(--text-muted); line-height: 1.6; }
+.settings-inner section { padding: var(--space-6); margin-bottom: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-tab); }
+.settings-inner label { display: block; margin: var(--space-4) 0 var(--space-2); }
+.settings-inner select, .settings-inner input[type=number] { display: block; width: 100%; min-height: var(--strip-height); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); background: var(--field); font: inherit; }
+.settings-inner input[type=number] { max-width: var(--tab-min-width); }
+.settings-inner small { display: block; margin-top: var(--space-2); color: var(--text-muted); font-size: var(--font-small); }
+.settings-inner .settings-checkbox { display: flex; align-items: center; gap: var(--space-2); }
+.settings-checkbox input { accent-color: var(--focus); }
+.settings-actions { display: flex; align-items: center; gap: var(--space-3); }
+.settings-actions button { flex: none; padding: var(--space-2) var(--space-4); min-height: var(--strip-height); border: 1px solid var(--focus); border-radius: var(--radius); color: var(--surface); background: var(--focus); font-weight: 600; cursor: pointer; }
+.settings-actions button:disabled { opacity: .5; cursor: default; }
+.settings-actions [role=status] { color: var(--text-muted); font-size: var(--font-small); }
+.settings-inner .settings-error { color: var(--danger); }
+@media(max-width:640px) { .settings-inner { margin: 0 auto; padding: var(--space-4); } .settings-inner section { padding: var(--space-4); } .settings-actions { align-items: flex-start; flex-direction: column; } }

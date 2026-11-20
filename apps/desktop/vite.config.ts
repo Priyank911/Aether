@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  base: './',
   plugins: [react()],
   root: path.join(here, 'renderer'),
   build: {
-    outDir: path.join(here, '..', 'renderer-dist'),
+    outDir: path.join(here, 'renderer-dist'),
     emptyOutDir: true,
     rollupOptions: {
       input: {

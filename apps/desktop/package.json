@@ -6,7 +6,7 @@
   "description": "Aether Desktop: the Electron browser (plan 3.1, Steps 2 to 4)",
   "main": "dist/main/index.js",
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && pnpm renderer:build",
     "start": "electron .",
     "renderer:build": "vite build"
   },

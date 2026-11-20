@@ -17,6 +17,7 @@ export type OmniboxResult = { kind: 'url'; url: string } | { kind: 'search'; url
 export function resolveInput(raw: string): OmniboxResult {
   const text = raw.trim();
   if (!text) return { kind: 'refused', reason: 'nothing typed' };
+  if (/^aether:\/\/(newtab|history|about|settings)\/?$/i.test(text)) return { kind: 'url', url: `${text.replace(/\/$/, '').toLowerCase()}/` };
   if (/^about:blank$/i.test(text)) return { kind: 'url', url: 'about:blank' };
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(text)?.[1]?.toLowerCase();
   if (scheme === 'http' || scheme === 'https') {

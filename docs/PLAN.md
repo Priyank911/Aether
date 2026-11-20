@@ -16,10 +16,12 @@ The perception, action, policy and memory packages from 2.0 are kept as the engi
 | 0 | Plan in the repo, v3 schemas, `FORM` landmark fix | Done 2026-11-18 |
 | 1 | Code Mode (`aether_exec`) and Smart Landing on the 2.0 engine | Done 2026-11-18 |
 | 2 | Electron core: Spaces, sleeping tabs, agent host window, watchdog, filter, hardening, SQLite | Done 2026-11-18 (24 test files, 201 tests) |
-| 3 | Hands-free connection: app service, `aether` command, `/aether` skill linked into every host, installer, Code Mode inside the app | **Next** |
-| 4 | Shell UI: the Chrome-like design, Agent bar, side panel, overlay, browser basics, Settings | Planned |
+| 3 | Hands-free connection: app service, `aether` command, `/aether` skill linked into every host, installer, Code Mode inside the app | Core implemented; S10 and clean-profile install acceptance remain open; static review found correctness gaps (see `AUDIT.md`) |
+| 4 | Shell UI: the Chrome-like design, Agent bar, side panel, overlay, browser basics, Settings | **In progress**; renderer startup/build-path repair verified 2026-11-20; remaining UI and exit checks are not complete |
 | 5 | Chrome import and per-Space downloads | Planned |
 | 6 | Retire the extension and native host, measure v3 | Planned |
+
+Current implementation review and the remaining work are recorded in [`AUDIT.md`](AUDIT.md). On 2026-11-20, tasks 4.1–4.3 passed typecheck, lint (7 warnings), 24 contrast checks and 36 test files / 273 tests with a single test fork. Concurrent browser-fixture instability is recorded in the audit. Task 4.4 has an ordering conflict requiring clarification: its §10.5 shortcuts include Find/History/bookmark UI from tasks 4.7–4.8 and Downloads from Phase 5; see the audit. This is not a Phase 3 or Phase 4 exit sign-off.
 
 Baseline before Phase 0 (2026-11-18): 17 test files, 146 tests, all passing; `pnpm typecheck` and `pnpm lint` clean (2 pre-existing lint warnings). After Phase 2: 24 test files, 201 tests, all passing; lint 0 errors, 5 pre-existing warnings.
 
@@ -287,7 +289,7 @@ Every navigation runs these steps before returning:
 | Find | `space.find(query, role?)` | ranked list |
 | Delta | returned by `space.act()` | |
 
-`ProductGraphMatcher` scoring must be written down in `docs/PERCEPTION.md`. 3.0 calls it "Jaccard centrality" without a definition. This was due in Phase 1 and was not done; it is carried into Phase 3 (task 3.11).
+`ProductGraphMatcher` scoring is documented in `docs/PERCEPTION.md` (task 3.11). It defines the pairwise Jaccard centrality and composite ranking score. That document describes perception, not overall phase completion.
 
 ---
 
@@ -822,7 +824,7 @@ Deviations, each recorded with its reason:
 
 Exit met: 15 lazy tabs leave 14 asleep at under 300 bytes each; concurrency follows free memory and pressure puts background tabs to sleep; deleting a Space clears caches and keeps cookies; a crashed renderer affects only its tab; background Agent tabs render and lazy-load; Human tabs are never debugged; Spaces restore asleep after a restart.
 
-### Phase 3. Hands-free connection (next)
+### Phase 3. Hands-free connection (core implemented; exit checks open)
 
 Goal: the person installs Aether once, then types `/aether <task>` in Claude Code, VS Code, Antigravity or opencode and watches the agent work in the app. No per-host setup.
 

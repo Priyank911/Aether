@@ -113,6 +113,7 @@ export const RunStateNameSchema = z.enum(['idle', 'acting', 'waiting_human', 're
 export const WaitReasonSchema = z.enum(['question', 'approval', 'must_perform', 'user_interrupted', 'captcha']);
 
 export const ApprovalDetailSchema = z.object({
+  urls: z.array(z.string().url().max(4096)).optional(),
   site: z.string(),
   element: z.string(),
   /** Form values about to be sent, with secrets masked. */

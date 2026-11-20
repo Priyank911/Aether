@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ShellCommand, ShellSnapshot } from '@aether/shared';
 import AgentBar from './AgentBar';
-import { Icon, shownUrl, SvgDefs, Tab } from './chrome';
+import SidePanel from './SidePanel';
+import BookmarksBar from './BookmarksBar';
+import SettingsPage from './SettingsPage';
+import { SvgDefs } from './chrome';
+import Toolbar from './Toolbar';
+import TabStrip from './TabStrip';
 
 export default function App() {
   const [snap, setSnap] = useState<ShellSnapshot | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
+
   const [notice, setNotice] = useState('');
   const omniboxRef = useRef<HTMLInputElement>(null);
+  const focusAfterNewTab = useRef<{ previous?: string } | null>(null);
 
   const snapRef = useRef<ShellSnapshot | null>(null);
   snapRef.current = snap;
@@ -20,16 +25,40 @@ export default function App() {
     }).catch(() => setNotice('shell command failed'));
   };
 
+  const newTab = () => {
+    const current = snapRef.current;
+    focusAfterNewTab.current = { previous: current?.spaces.find((entry) => entry.space.id === current.activeSpaceId)?.activeTabId };
+    send({ type: 'tab.new' });
+  };
+
   useEffect(() => {
-    window.aether.onSnapshot(setSnap);
+    if (snap?.focusOmnibox) requestAnimationFrame(() => { omniboxRef.current?.focus(); omniboxRef.current?.select(); });
+  }, [snap?.focusOmnibox]);
+
+  useEffect(() => {
+    const current = snap?.spaces.find((entry) => entry.space.id === snap.activeSpaceId);
+    if (focusAfterNewTab.current && current?.activeTabId && current.activeTabId !== focusAfterNewTab.current.previous) {
+      focusAfterNewTab.current = null;
+      requestAnimationFrame(() => omniboxRef.current?.focus());
+    }
+  }, [snap]);
+
+  useEffect(() => {
+    const unsubscribe = window.aether.onSnapshot(setSnap);
     send({ type: 'shell.ready' });
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
-      if (mod && k === 't' && !e.shiftKey) { send({ type: 'tab.new' }); omniboxRef.current?.focus(); }
+      if (mod && e.shiftKey && /^[1-9]$/.test(e.code.replace('Digit', ''))) {
+        const spaces = snapRef.current?.spaces;
+        const target = spaces?.[Number(e.code.slice(-1)) - 1];
+        if (target) send({ type: 'space.switch', spaceId: target.space.id });
+      }
+      else if (mod && k === 't' && !e.shiftKey) newTab();
       else if (mod && e.shiftKey && k === 't') send({ type: 'tab.reopen' });
       else if (mod && k === 'w') {
         const s = snapRef.current;
@@ -61,68 +90,23 @@ export default function App() {
   const entry = snap?.spaces.find((s) => s.space.id === snap.activeSpaceId);
   if (!snap || !entry) return <div className="window" />;
 
-  const agent = entry.space.kind === 'agent';
-  const frame = entry.frame;
-  const waiting = Boolean(frame?.pending);
+
   const activeTab = entry.tabs.find((t) => t.id === entry.activeTabId);
-  const secure = activeTab?.url?.startsWith('https://') ?? false;
+
 
   return (
-    <div className="window">
+    <div className="window" onPointerDownCapture={(event) => {
+      if (snap.spaceMenuOpen && event.target instanceof Element && !event.target.closest('.space-chip, .agent-indicator')) send({ type: 'space.menu', open: false });
+    }}>
       <SvgDefs />
-      <div className="strip" role="tablist" aria-label="Tabs">
-        <label className="space-chip" title="Switch Space">
-          <span className={`dot${agent ? ' agent' : ''}${waiting ? ' wait' : ''}`} aria-hidden="true" />
-          <select aria-label="Switch Space" value={snap.activeSpaceId}
-            onChange={(e) => send({ type: 'space.switch', spaceId: e.target.value })}>
-            {snap.spaces.map((s) => <option key={s.space.id} value={s.space.id}>{s.space.name}</option>)}
-          </select>
-          <svg className="chev" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 3.5 3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </label>
-        <div className="tabs">
-          {entry.tabs.map((tab) => (
-            <Tab key={tab.id} tab={tab} active={tab.id === entry.activeTabId}
-              onActivate={() => send({ type: 'tab.activate', tabId: tab.id })}
-              onClose={() => send({ type: 'tab.close', tabId: tab.id })} />
-          ))}
-        </div>
-        <button className="icon-btn strip-btn" type="button" aria-label="New tab" title="New tab (Ctrl+T)" onClick={() => { send({ type: 'tab.new' }); omniboxRef.current?.focus(); }}>
-          <Icon id="i-plus" size={16} />
-        </button>
-      </div>
-      <div className="toolbar">
-        <button className="icon-btn" type="button" aria-label="Back" title="Back (Alt+Left)" disabled={!activeTab?.canGoBack} onClick={() => send({ type: 'nav.back' })}>
-          <Icon id="i-back" size={18} />
-        </button>
-        <button className="icon-btn" type="button" aria-label="Forward" title="Forward (Alt+Right)" disabled={!activeTab?.canGoForward} onClick={() => send({ type: 'nav.forward' })}>
-          <Icon id="i-fwd" size={18} />
-        </button>
-        <button className="icon-btn" type="button" aria-label="Reload" title="Reload (Ctrl+R)" onClick={() => send({ type: 'nav.reload' })}>
-          <Icon id="i-reload" size={18} />
-        </button>
-        <form className={`omnibox${secure ? ' secure' : ''}`}
-          onSubmit={(e) => {
-            e.preventDefault();
-            const input = draft.trim();
-            if (!input) return;
-            setEditing(false);
-            omniboxRef.current?.blur();
-            send({ type: 'nav.go', input });
-          }}>
-          <span className="omni-icon"><Icon id={secure ? 'i-lock' : 'i-globe'} size={14} /></span>
-          <input ref={omniboxRef} type="text" spellCheck={false} autoComplete="off" aria-label="Address and search"
-            placeholder="Search Google or type a web address"
-            value={editing ? draft : activeTab ? shownUrl(activeTab.url) : ''}
-            onFocus={() => { setEditing(true); setDraft(activeTab ? shownUrl(activeTab.url) : ''); requestAnimationFrame(() => omniboxRef.current?.select()); }}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => setEditing(false)} />
-        </form>
-        <button className="icon-btn" type="button" aria-label="Side panel" title="Side panel (Ctrl+\)" onClick={() => send({ type: 'panel.toggle' })}>
-          <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M15 4v16" stroke="currentColor" strokeWidth="1.8" /></svg>
-        </button>
-        <span className="notice" role="status" aria-live="polite">{notice}</span>
-      </div>
-      <AgentBar entry={entry} send={send} />
+      <TabStrip snapshot={snap} entry={entry} send={send} onNewTab={newTab} />
+      <Toolbar snapshot={snap} tab={activeTab} inputRef={omniboxRef} send={send} notice={notice} />
+      <BookmarksBar snapshot={snap} send={send} />
+      {snap.settings && <SettingsPage key={activeTab?.id} settings={snap.settings} top={snap.chromeHeight ?? 76} right={snap.panelWidth ?? 0} />}
+      {activeTab?.state === 'crashed' && <main className="tab-crashed" style={{ top: snap.chromeHeight ?? 76, right: snap.panelWidth ?? 0 }}><div><h1>This tab stopped working</h1><p>Your other tabs are still available. Reload to open this page again.</p><button type="button" onClick={() => send({ type: 'nav.reload' })}>Reload page</button></div></main>}
+      <AgentBar entry={entry} send={send} visible={snap.agentBarVisible} />
+      {entry.space.kind === 'agent' && entry.frame && ['acting', 'resuming', 'waiting_human'].includes(entry.frame.state) && <div className={`viewport-frame ${entry.frame.state === 'waiting_human' ? 'waiting' : 'acting'}`} aria-hidden="true" style={{ top: snap.chromeHeight ?? (snap.agentBarVisible ? 108 : 76), right: snap.panelWidth ?? 0 }} />}
+      {snap.panelOpen && <SidePanel snapshot={snap} entry={entry} send={send} />}
     </div>
   );
 }

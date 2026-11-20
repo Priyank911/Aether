@@ -4,9 +4,7 @@ declare global {
   interface Window {
     aether: {
       send(command: ShellCommand): Promise<unknown>;
-      onSnapshot(listener: (snapshot: ShellSnapshot) => void): void;
+      onSnapshot(listener: (snapshot: ShellSnapshot) => void): () => void;
     };
   }
 }
-
-export {};

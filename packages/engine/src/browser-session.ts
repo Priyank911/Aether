@@ -478,7 +478,7 @@ export class MCPBrowserSession {
       const held = urls.filter((url) => classifyOpen(url, this.navigationContext()).outcome === 'needs_approval');
       if (held.length === 0) return open();
       const pending = this.run.hold('approval', `Open ${held.length} new sites the script built?`, {
-        approval: { site: `${held.length} new sites`, element: held.join('\n'), values: [], agentReason: 'these URLs carry data to origins the run has not visited' },
+        approval: { urls: held, site: `${held.length} new sites`, element: held.join('\n'), values: [], agentReason: 'these URLs carry data to origins the run has not visited' },
       });
       return this.holdAndContinue(pending.id, async (reply) =>
         reply.kind === 'approve' ? open() : { notes: ['the person denied opening these URLs; nothing was done.'], isError: true },
@@ -622,7 +622,16 @@ export class MCPBrowserSession {
     if (waiting?.reason === 'user_interrupted') return this.handBack(waiting.id, 'the person had control of the tab; your last call was not run. The page now:');
     if (waiting) return this.waitingOutput();
     this.run.acting(label);
-    return body();
+    let output: ToolOutput;
+    try { output = await body(); }
+    catch (error) {
+      if (this.tabs.takeCertificateRefusal?.()) return { notes: ['refuse: the site certificate could not be verified. No certificate bypass is available to agents.'], isError: true };
+      if (!this.tabs.takeAuthRequirement?.()) throw error;
+      return this.waitForAuthentication();
+    }
+    if (this.tabs.takeCertificateRefusal?.()) return { notes: ['refuse: the site certificate could not be verified. No certificate bypass is available to agents.'], isError: true };
+    if (this.tabs.takeAuthRequirement?.()) return this.waitForAuthentication();
+    return output;
   }
 
   private takeStop(): ToolOutput | undefined {
@@ -638,6 +647,11 @@ export class MCPBrowserSession {
   }
 
   /** The person has the tab. Hold until they press Resume, then return a fresh skim. */
+  private async waitForAuthentication(): Promise<ToolOutput> {
+    const pending = this.run.waiting ?? this.run.hold('must_perform', 'This page needs a username and password. Reload the page and sign in, then press “I’m done”. Credentials stay in Aether and are not sent to your editor.');
+    return this.holdAndContinue(pending.id, async () => this.afterHuman(await this.currentTab(), 'the person finished signing in'));
+  }
+
   private async handBack(id: string, note: string): Promise<ToolOutput> {
     const tab = await this.currentTab();
     return this.holdAndContinue(id, this.continuations.has(id) ? undefined : () => this.afterHuman(tab, note));

@@ -30,6 +30,20 @@ export class SpaceTabController implements SessionTabController {
     for (const tab of this.spaceEntry().tabs) this.known.add(tab.id);
   }
 
+  public takeCertificateRefusal(): boolean {
+    const tab = this.spaceEntry().tabs.find((candidate) => candidate.certificateRefused);
+    if (!tab) return false;
+    tab.certificateRefused = false;
+    return true;
+  }
+
+  public takeAuthRequirement(): boolean {
+    const tab = this.spaceEntry().tabs.find((candidate) => candidate.authenticationRequired);
+    if (!tab) return false;
+    tab.authenticationRequired = false;
+    return true;
+  }
+
   public async current(): Promise<AgentTab> {
     const entry = this.spaceEntry();
     const active = entry.tabs.find((tab) => tab.id === entry.activeTabId);
@@ -43,6 +57,7 @@ export class SpaceTabController implements SessionTabController {
     if (cached?.isAlive) return cached;
     this.attached.delete(targetId);
     const tab = await AgentTab.attach(this.client, targetId);
+    tab.actor.onActionTarget = (point) => this.manager.emit('action-target', point ? { tabId: targetId, ...point, timestamp: Date.now() } : undefined);
     this.attached.set(targetId, tab);
     return tab;
   }

@@ -20,6 +20,9 @@ export interface SessionTabInfo {
 export interface SessionTabController {
   /** The host can hold several tabs at once (openTabs, switchTab, per-page tabs in mapPages). */
   readonly multiTab: boolean;
+  /** Native HTTP authentication was refused to the agent; a person must sign in. */
+  takeAuthRequirement?(): boolean;
+  takeCertificateRefusal?(): boolean;
   /** The tab the agent works in now, attached and alive. */
   current(): Promise<AgentTab>;
   /** Attach to a known tab. */
