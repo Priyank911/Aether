@@ -127,6 +127,9 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const omniboxRef = useRef<HTMLInputElement>(null);
 
+  const snapRef = useRef<ShellSnapshot | null>(null);
+  snapRef.current = snap;
+
   const send = (command: ShellCommand) => {
     void window.aether.send(command).then((result) => {
       const r = result as { ok?: boolean; error?: string } | undefined;
@@ -145,7 +148,12 @@ export default function App() {
       const k = e.key.toLowerCase();
       if (mod && k === 't' && !e.shiftKey) { send({ type: 'tab.new' }); omniboxRef.current?.focus(); }
       else if (mod && e.shiftKey && k === 't') send({ type: 'tab.reopen' });
-      else if (mod && k === 'w') { /* close active tab of active space */ }
+      else if (mod && k === 'w') {
+        const s = snapRef.current;
+        const e = s?.spaces.find((x) => x.space.id === s.activeSpaceId);
+        const t = e?.tabs.find((x) => x.id === e.activeTabId);
+        if (t) send({ type: 'tab.close', tabId: t.id });
+      }
       else if ((mod && k === 'l') || e.key === 'F6') { e.preventDefault(); omniboxRef.current?.focus(); omniboxRef.current?.select(); }
       else if (mod && k === '\\') send({ type: 'panel.toggle' });
       else if ((mod && k === 'r') || e.key === 'F5') send({ type: 'nav.reload', hard: e.shiftKey });
