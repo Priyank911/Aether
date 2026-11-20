@@ -170,6 +170,17 @@ export class SpaceManager extends EventEmitter {
     this.changed(tab.spaceId);
   }
 
+  /** Move a tab to a new position in its Space's strip (drag reorder, plan 10.2). */
+  public moveTab(tabId: string, index: number): void {
+    const tab = this.require(tabId);
+    const entry = this.entry(tab.spaceId);
+    const from = entry.tabs.indexOf(tab);
+    if (from < 0) return;
+    entry.tabs.splice(from, 1);
+    entry.tabs.splice(Math.max(0, Math.min(index, entry.tabs.length)), 0, tab);
+    this.changed(tab.spaceId);
+  }
+
   /** Show a Space in the main window; its active tab wakes if it was asleep. */
   public showSpace(spaceId: string): void {
     const entry = this.entry(spaceId);

@@ -29,11 +29,11 @@ function shellTab(tab: Tab): ShellTab {
   };
 }
 
-export function buildSnapshot(manager: SpaceManager): ShellSnapshot {
+export function buildSnapshot(manager: SpaceManager, panelOpen = false): ShellSnapshot {
   return {
     type: 'shell.snapshot',
     activeSpaceId: manager.visibleSpaceId,
-    panelOpen: false,
+    panelOpen,
     platform: process.platform === 'darwin' ? 'darwin' : process.platform === 'linux' ? 'linux' : 'win32',
     spaces: manager.list().map((entry) => ({
       space: entry.record,
@@ -54,6 +54,7 @@ export class ShellBridge {
   private readonly engine?: DesktopSpaceEngine;
   private readonly codeMode?: CodeModeHost;
   private timer?: NodeJS.Timeout;
+  private panelOpen = false;
 
   public constructor(manager: SpaceManager, window: ShellWindow, engine?: DesktopSpaceEngine, codeMode?: CodeModeHost) {
     const shell = window.shell.webContents;
@@ -63,7 +64,8 @@ export class ShellBridge {
     this.engine = engine;
     this.codeMode = codeMode;
     ipcMain.handle('aether:command', async (event, raw: unknown): Promise<CommandResult> => {
-      if (event.sender !== this.shell) return { ok: false, error: 'commands are accepted from the Aether shell only' };
+      const senders = [this.shell, this.window.overlay.webContents];
+      if (!senders.includes(event.sender)) return { ok: false, error: 'commands are accepted from the Aether shell only' };
       const parsed = ShellCommandSchema.safeParse(raw);
       if (!parsed.success) return { ok: false, error: `bad command: ${parsed.error.issues[0]?.message ?? 'invalid'}` };
       try {
@@ -77,11 +79,13 @@ export class ShellBridge {
 
   public push(): void {
     if (this.shell.isDestroyed()) return;
-    const snapshot = buildSnapshot(this.manager);
+    const snapshot = buildSnapshot(this.manager, this.panelOpen);
     // The Agent bar exists only for the interim shell; the Phase 4 layout reserves its row always.
     const shown = snapshot.spaces.find((entry) => entry.space.id === snapshot.activeSpaceId);
     this.window.setAgentBar(Boolean(shown?.frame && shown.frame.state !== 'idle'));
     this.shell.send('aether:snapshot', snapshot);
+    const overlay = this.window.overlay.webContents;
+    if (!overlay.isDestroyed()) overlay.send('aether:snapshot', snapshot);
   }
 
   private schedule(): void {
@@ -186,10 +190,17 @@ export class ShellBridge {
         return accepted ? { ok: true } : { ok: false, error: 'no pending request matches this reply' };
       }
       case 'tab.move':
+        this.manager.moveTab(command.tabId, command.index);
+        return { ok: true };
       case 'panel.toggle':
+        this.panelOpen = command.open ?? !this.panelOpen;
+        this.schedule();
+        return { ok: true };
       case 'overlay.layout':
+        this.window.setOverlayOpen(command.open);
+        return { ok: true };
       case 'memory':
-        return { ok: false, error: `${command.type} arrives with the full shell in Step 4` };
+        return { ok: false, error: 'memory commands arrive with the side panel' };
     }
   }
 }

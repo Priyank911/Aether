@@ -25,8 +25,11 @@ export interface ShellWindowOptions {
 export class ShellWindow implements MainDisplay {
   public readonly window: BaseWindow;
   public readonly shell: WebContentsView;
+  /** Transparent layer over the page viewport: suggestions, shield, ghost cursor, toasts (plan 3.1, section 10.3). */
+  public readonly overlay: WebContentsView;
   private shown?: WebContentsView;
   private agentBar = false;
+  private overlayOpen = false;
   private readonly resizeListeners: Array<(size: { width: number; height: number }) => void> = [];
 
   public constructor(options: ShellWindowOptions = {}) {
@@ -66,6 +69,24 @@ export class ShellWindow implements MainDisplay {
     const renderer = path.join(here, '..', '..', 'renderer-dist', 'index.html');
     const shellPage = fs.existsSync(renderer) ? renderer : path.join(here, '..', '..', 'static', 'shell.html');
     void this.shell.webContents.loadFile(shellPage);
+    this.overlay = new WebContentsView({
+      webPreferences: {
+        preload: path.join(here, '..', 'preload', 'shell.cjs'),
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        spellcheck: false,
+      },
+    });
+    this.overlay.setBackgroundColor('#00000000');
+    const overlayPage = path.join(here, '..', '..', 'renderer-dist', 'overlay.html');
+    if (fs.existsSync(overlayPage)) {
+      this.overlay.webContents.on('will-navigate', (event) => event.preventDefault());
+      this.overlay.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      // A WebContentsView has no click-through API: it is attached only while
+      // the overlay has interactive UI, so it never swallows page input.
+      void this.overlay.webContents.loadFile(overlayPage);
+    }
     this.window.on('resize', () => this.layout());
     this.layout();
     if (options.offscreen) this.window.showInactive();
@@ -112,12 +133,30 @@ export class ShellWindow implements MainDisplay {
     return SHELL_HEIGHT + (this.agentBar ? AGENT_BAR_HEIGHT : 0);
   }
 
+  /** Attach the overlay only while it has interactive UI; detached it cannot eat page input. */
+  public setOverlayOpen(open: boolean): void {
+    if (this.overlayOpen === open) return;
+    this.overlayOpen = open;
+    this.layout();
+  }
+
   private layout(): void {
     const { width, height } = this.window.getContentBounds();
     const chrome = this.chromeHeight();
     this.shell.setBounds({ x: 0, y: 0, width, height: chrome });
     const viewport = { x: 0, y: chrome, width, height: Math.max(1, height - chrome) };
     if (this.shown) this.shown.setBounds(viewport);
+    if (this.overlayOpen) {
+      this.overlay.setBounds(viewport);
+      // Re-adding keeps the overlay above whichever page view is shown.
+      this.window.contentView.addChildView(this.overlay);
+    } else {
+      try {
+        this.window.contentView.removeChildView(this.overlay);
+      } catch {
+        // Not attached.
+      }
+    }
     for (const listener of this.resizeListeners) listener({ width: viewport.width, height: viewport.height });
   }
 }

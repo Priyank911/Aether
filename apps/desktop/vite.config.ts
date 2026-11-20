@@ -11,5 +11,11 @@ export default defineConfig({
   build: {
     outDir: path.join(here, '..', 'renderer-dist'),
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: path.join(here, 'renderer', 'index.html'),
+        overlay: path.join(here, 'renderer', 'overlay.html'),
+      },
+    },
   },
 });
