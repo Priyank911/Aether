@@ -5,7 +5,7 @@
   "description": "Aether: Authentic Agentic Browser Engine",
   "scripts": {
     "build": "pnpm -r run build",
-    "typecheck": "pnpm --filter @aether/extension run prepare && tsc --build --verbose",
+    "typecheck": "pnpm --filter @aether/extension run prepare && tsc --build --verbose && tsc -p apps/desktop/renderer/tsconfig.json",
     "lint": "node scripts/lint.mjs",
     "lint:native": "biome lint .",
     "test": "pnpm extension:build && tsc --build apps/cli apps/desktop && vitest run",
@@ -18,7 +18,7 @@
     "mcp:build": "tsc --build apps/cli",
     "setup:build": "tsc --build apps/cli apps/native-host && pnpm extension:build",
     "doctor": "tsc --build apps/cli && node apps/cli/dist/index.js doctor",
-    "desktop": "tsc --build apps/desktop && node scripts/run-desktop.mjs",
+    "desktop": "tsc --build apps/desktop && pnpm --filter @aether/desktop run renderer:build && node scripts/run-desktop.mjs",
     "aether:install": "pnpm build && node scripts/aether-install.mjs install",
     "aether:uninstall": "node scripts/aether-install.mjs uninstall"
   },

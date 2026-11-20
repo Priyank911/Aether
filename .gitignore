@@ -6,3 +6,4 @@ dist/
 .userData/
 *.tsbuildinfo
 *.log
+renderer-dist/

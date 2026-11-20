@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BaseWindow, screen, WebContentsView } from 'electron';
@@ -62,7 +63,9 @@ export class ShellWindow implements MainDisplay {
     // The shell never navigates away from its own page and never opens windows.
     this.shell.webContents.on('will-navigate', (event) => event.preventDefault());
     this.shell.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    void this.shell.webContents.loadFile(path.join(here, '..', '..', 'static', 'shell.html'));
+    const renderer = path.join(here, '..', '..', 'renderer-dist', 'index.html');
+    const shellPage = fs.existsSync(renderer) ? renderer : path.join(here, '..', '..', 'static', 'shell.html');
+    void this.shell.webContents.loadFile(shellPage);
     this.window.on('resize', () => this.layout());
     this.layout();
     if (options.offscreen) this.window.showInactive();
