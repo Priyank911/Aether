@@ -11,14 +11,15 @@
   },
   "dependencies": {
     "@aether/cdp": "workspace:*",
+    "@aether/codemode": "workspace:*",
+    "@aether/engine": "workspace:*",
     "@aether/memory": "workspace:*",
     "@aether/perceiver": "workspace:*",
     "@aether/policy": "workspace:*",
-    "@aether/shared": "workspace:*",
-    "@aether/engine": "workspace:*",
-    "@aether/codemode": "workspace:*"
+    "@aether/shared": "workspace:*"
   },
   "devDependencies": {
-    "electron": "45.2.2"
+    "electron": "45.2.2",
+    "lucide-static": "^1.76.0"
   }
 }
