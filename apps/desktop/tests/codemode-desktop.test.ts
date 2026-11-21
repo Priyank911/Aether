@@ -143,6 +143,37 @@ return { delta: result.delta };`;
     expect(after ?? null).toBeNull();
   }, 90000);
 
+  it('resumes a sensitive-field handoff automatically when Enter submits the page', async () => {
+    const url = `${fixtures.mainBaseUrl}/manual-submit.html`;
+    const running = app.request<ExecReport>('exec', {
+      space: 'Manual submit',
+      thought: 'Sign in to continue',
+      code: `
+await space.open(${JSON.stringify(url)});
+const password = await space.find('Password', 'textbox');
+await space.act([{ op: 'fill', ref: password[0]!.ref, value: 'fixture-secret' }], { risk: 'read', why: 'Enter the password' });
+const page = await space.skim();
+return { tabId: page.tabId, url: page.url };`,
+    });
+    const held = await running;
+    expect(held.outcome.status).toBe('held');
+    const token = held.outcome.status === 'held' ? held.outcome.token : '';
+    const state = await app.request<{ spaces: Array<{ id: string; tabs: Array<{ id: string }> }> }>('state');
+    const tabId = state.spaces.find((space) => space.id === 'manual-submit')?.tabs[0]?.id;
+    expect(tabId).toBeTruthy();
+    await app.request('showSpace', { spaceId: 'manual-submit' });
+    await app.request('eval', { tabId, expression: "const field = document.querySelector('#password'); field.value = 'person-entered-secret'; field.focus()" });
+    await app.request('shellInput', { tabId, event: { type: 'keyDown', keyCode: 'Enter' } });
+    await app.request('shellInput', { tabId, event: { type: 'char', keyCode: String.fromCharCode(13) } });
+    await app.request('shellInput', { tabId, event: { type: 'keyUp', keyCode: 'Enter' } });
+    let resumed = await app.request<ExecReport>('exec', { space: 'Manual submit', thought: 'Waiting for sign in', wait: token });
+    for (let attempt = 0; resumed.outcome.status === 'held' && attempt < 5; attempt++) {
+      resumed = await app.request<ExecReport>('exec', { space: 'Manual submit', thought: 'Waiting for sign in', wait: token });
+    }
+    if (resumed.outcome.status !== 'complete') throw new Error(`expected completion after Enter, got ${JSON.stringify(resumed.outcome)}`);
+    expect(JSON.parse(resumed.outcome.json ?? '{}')).toEqual({ tabId, url: `${fixtures.mainBaseUrl}/shop/list?page=2` });
+  }, 90000);
+
   it('Take over parks the script at once and "Hand back to Aether" resumes it', async () => {
     const running = app.request<ExecReport>('exec', {
       space: 'Watch',

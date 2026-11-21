@@ -11,6 +11,7 @@ import type { PageModel } from '../types.js';
  */
 
 const CAPTCHA_TEXT = /\b(verify (that )?you are (a )?human|(?:are you|not a|aren't a|are not a) robot|press and hold|complete the security check|i'?m not a robot|captcha|human verification|security challenge|unusual (?:traffic|activity)|automated (?:requests?|access)|make sure you(?:'re| are) not a robot|enter (?:the )?characters? (?:you see|shown|in the image))\b/i;
+const AUTH_BLOCK_TEXT = /\b(couldn'?t sign you in|this browser or app may not be secure|try a different browser|browser is not supported|unsupported browser)\b/i;
 const SIGN_IN_FIELD = /password|passcode|passwort|mot de passe|contraseña|one[- ]?time|\botp\b|verification code|security code|\bpin\b|2fa|two[- ]factor/i;
 const FIELD_ROLES = new Set([...EDITABLE_ROLES, 'checkbox', 'radio', 'switch', 'slider']);
 const LISTING_MIN_ITEMS = 6;
@@ -21,6 +22,7 @@ export function classifyPage(model: PageModel, product?: ProductFacts): PageArch
   const nodes = [...model.byRef.values()];
   const captchaFrame = model.frames.some((frame) => frame.ordinal > 0 && CAPTCHA_FRAME_PATTERN.test(frame.url));
   if (captchaFrame || model.lines.slice(0, 80).some((line) => CAPTCHA_TEXT.test(line.plain))) return 'captcha';
+  if (model.lines.slice(0, 80).some((line) => AUTH_BLOCK_TEXT.test(line.plain))) return 'auth_gate';
 
   // A password or one-time code field; a card field alone is a checkout form, not a sign-in gate.
   const signIn = nodes.some((node) => node.sensitive && EDITABLE_ROLES.has(node.role) && SIGN_IN_FIELD.test(node.name));

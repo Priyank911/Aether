@@ -41,6 +41,19 @@ export const FORM_PAGE_HTML = `<!DOCTYPE html>
 </html>
 `;
 
+export const MANUAL_SUBMIT_PAGE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Manual Sign In Fixture</title></head>
+<body>
+  <h1>Sign in to continue</h1>
+  <form method="post" action="/shop/list?page=2">
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Continue</button>
+  </form>
+</body>
+</html>`;
+
 export const NESTED_GRANDCHILD_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>

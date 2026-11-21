@@ -45,7 +45,7 @@ export class AgentHost {
   }
 
   public add(view: WebContentsView): void {
-    if (this.views.has(view)) return;
+    if (this.window.isDestroyed() || view.webContents.isDestroyed() || this.views.has(view)) return;
     const { width, height } = this.window.getContentBounds();
     view.setBounds({ x: 0, y: 0, width, height });
     this.window.contentView.addChildView(view);

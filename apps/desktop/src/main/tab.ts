@@ -10,7 +10,7 @@ import type { SpaceKind, TabRecord, TabState } from '@aether/shared';
  * released, and it can be woken again.
  *
  * Events: 'changed' (record changed), 'opened' (the page asked for a new tab),
- * 'crashed' (reason), 'released' (the view is about to close).
+ * 'navigated' (top-level URL changed), 'crashed' (reason), 'released' (the view is about to close).
  */
 
 export interface TabOptions {
@@ -185,9 +185,10 @@ export class Tab extends EventEmitter {
       this.emit('changed');
     });
     const onNavigate = (_event: unknown, url: string): void => {
-      if (url.startsWith('aether://error')) return;
+      if (this.current !== view || contents.isDestroyed() || url.startsWith('aether://error')) return;
       this.loadFailure = undefined;
       this.url = url;
+      this.emit('navigated', url);
       this.emit('changed');
     };
     contents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {

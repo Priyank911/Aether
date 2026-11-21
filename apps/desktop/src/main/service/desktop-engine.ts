@@ -30,6 +30,12 @@ export class DesktopSpaceEngine implements SpaceEngine {
 
   public constructor(options: DesktopSpaceEngineOptions) {
     this.options = options;
+    options.manager.onHumanNavigation((spaceId, tabId) => {
+      const session = this.engines.get(spaceId)?.session;
+      const pending = session?.run.waiting;
+      if (!session || session.currentTabId() !== tabId || !pending || (pending.reason !== 'must_perform' && pending.reason !== 'captcha')) return;
+      session.run.receive({ type: 'aether.reply', id: pending.id, kind: 'done' });
+    });
   }
 
   public async call(method: SpaceMethod, args: unknown[], run: RunContext): Promise<unknown> {

@@ -79,10 +79,17 @@ export class SpaceManager extends EventEmitter {
   private milestoneSeq = 0;
   /** The run state machine of each Space's engine session, as the shell renders it. */
   private readonly frames = new Map<string, SpaceFrame>();
+  private closed = false;
 
   public constructor(options: SpaceManagerOptions) {
     super();
     this.options = options;
+  }
+
+  /** Observe main-frame navigation so a person can finish a held manual step by submitting the page. */
+  public onHumanNavigation(listener: (spaceId: string, tabId: string) => void): () => void {
+    this.on('human-navigation', listener);
+    return () => this.off('human-navigation', listener);
   }
 
   /** Load Spaces and tabs from storage. Every tab starts asleep except the Human Space's active tab. */
@@ -137,6 +144,7 @@ export class SpaceManager extends EventEmitter {
   }
 
   public openTab(spaceId: string, url: string, options: { activate?: boolean; live?: boolean } = {}): Tab {
+    if (this.closed) throw new Error('SpaceManager is closed');
     const entry = this.entry(spaceId);
     const tab = this.makeTab(entry, url);
     entry.tabs.push(tab);
@@ -152,6 +160,7 @@ export class SpaceManager extends EventEmitter {
    * allows and the rest sleep. Returns a short receipt, never page content.
    */
   public openTabs(spaceId: string, urls: readonly string[], options: { lazy?: boolean } = {}): OpenTabsResult {
+    if (this.closed) throw new Error('SpaceManager is closed');
     const entry = this.entry(spaceId);
     const tabIds: string[] = [];
     let live = 0;
@@ -396,6 +405,8 @@ export class SpaceManager extends EventEmitter {
   }
 
   public closeAll(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.flush();
     for (const entry of this.spaces.values()) for (const tab of entry.tabs) tab.close();
   }
@@ -423,8 +434,11 @@ export class SpaceManager extends EventEmitter {
       if (this.visible === tab.spaceId && this.spaces.get(tab.spaceId)?.activeTabId === tab.id && (this.spaces.has(spaceId) || this.archivedSpaces().some((space) => space.id === spaceId))) this.showSpace(spaceId);
     });
     tab.on('external-protocol', (url: string) => this.emit('external-protocol', tab.id, url));
+    tab.on('navigated', () => {
+      if (!this.closed) this.emit('human-navigation', tab.spaceId, tab.id);
+    });
     tab.on('opened', (target: string) => {
-      if (this.spaces.has(tab.spaceId)) this.openTab(tab.spaceId, target, { activate: tab.kind === 'human', live: true });
+      if (!this.closed && this.spaces.has(tab.spaceId)) this.openTab(tab.spaceId, target, { activate: tab.kind === 'human', live: true });
     });
     tab.on('released', (view: WebContentsView) => {
       this.options.host.remove(view);
@@ -444,6 +458,7 @@ export class SpaceManager extends EventEmitter {
   }
 
   private wake(tab: Tab): void {
+    if (this.closed) return;
     const fresh = tab.view === undefined;
     const view = tab.wake();
     if (fresh && tab.kind === 'agent') {

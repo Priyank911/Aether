@@ -251,7 +251,7 @@ export class MCPBrowserSession {
       const mustPerform = decisions.find((decision) => decision.outcome === 'human_must_perform');
       if (mustPerform) {
         const reason = /CAPTCHA/.test(mustPerform.reason) ? 'captcha' : 'must_perform';
-        const pending = this.run.hold(reason, `${mustPerform.reason}. Do it in the page, then press "I've done it".`);
+        const pending = this.run.hold(reason, `${mustPerform.reason}. Complete it in the page and submit it. Aether resumes after the page navigates; if it stays here, press "I've done it".`);
         return this.holdAndContinue(pending.id, () => this.afterHuman(tab, 'the person did it'));
       }
       const approvals = decisions.filter((decision) => decision.outcome === 'needs_approval');
@@ -422,7 +422,7 @@ export class MCPBrowserSession {
   public async handOff(prompt: string): Promise<ToolOutput> {
     return this.guarded('Waiting for you', async () => {
       const tab = await this.currentTab();
-      const pending = this.run.hold('must_perform', `${prompt} Do it in the page, then press "I've done it".`);
+      const pending = this.run.hold('must_perform', `${prompt} Complete it in the page and submit it. Aether resumes after the page navigates; if it stays here, press "I've done it".`);
       return this.holdAndContinue(pending.id, () => this.afterHuman(tab, 'the person did it'));
     });
   }
@@ -649,7 +649,7 @@ export class MCPBrowserSession {
 
   /** The person has the tab. Hold until they press Resume, then return a fresh skim. */
   private async waitForAuthentication(): Promise<ToolOutput> {
-    const pending = this.run.waiting ?? this.run.hold('must_perform', 'This page needs a username and password. Reload the page and sign in, then press “I’m done”. Credentials stay in Aether and are not sent to your editor.');
+    const pending = this.run.waiting ?? this.run.hold('must_perform', 'This page needs a username and password. Sign in here and submit the page. Aether resumes after it navigates; if it stays here, press “I’m done”. Credentials stay in Aether and are not sent to your editor.');
     return this.holdAndContinue(pending.id, async () => this.afterHuman(await this.currentTab(), 'the person finished signing in'));
   }
 
@@ -679,6 +679,7 @@ export class MCPBrowserSession {
     tab.perceiver.forgetRefs();
     const blocked = this.dialogOutput(tab);
     if (blocked) return { ...blocked, notes: [note] };
+    await tab.watcher.untilLoaded(10000);
     const model = await this.capture(tab);
     const product = await readProductFacts(tab.session).catch(() => undefined);
     const output = this.page(renderSkim(model), tab);

@@ -30,4 +30,12 @@ describe('CAPTCHA page classification', () => {
   it('does not label ordinary product text as a CAPTCHA', () => {
     expect(classifyPage(pageWithText('Organic tea leaves, available in three sizes.'))).toBe('other');
   });
+
+  it.each([
+    "Couldn't sign you in",
+    'This browser or app may not be secure.',
+    'Try a different browser to continue.',
+  ])('keeps a site-level sign-in block from being treated as a verified page: %s', (text) => {
+    expect(classifyPage(pageWithText(text))).toBe('auth_gate');
+  });
 });

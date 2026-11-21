@@ -3,6 +3,7 @@ import {
   CROSS_ORIGIN_CHILD_HTML,
   CROSS_ORIGIN_PAGE_HTML,
   FORM_PAGE_HTML,
+  MANUAL_SUBMIT_PAGE_HTML,
   LONG_LIST_PAGE_HTML,
   NESTED_CHILD_HTML,
   NESTED_GRANDCHILD_HTML,
@@ -35,6 +36,8 @@ export async function startFixtureServers(
 
     if (url === '/form.html' || url === '/') {
       res.end(FORM_PAGE_HTML);
+    } else if (url === '/manual-submit.html') {
+      res.end(MANUAL_SUBMIT_PAGE_HTML);
     } else if (url === '/injection.html') {
       res.end(INJECTION_PAGE_HTML);
     } else if (url === '/nested-iframes.html') {
