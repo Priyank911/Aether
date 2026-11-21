@@ -68,13 +68,20 @@ export function readScript(file: string | undefined): string | undefined {
   }
 }
 
-/** Flags of the form --name value, plus bare values for the rest. */
+/** Flags of the form --name value or --name=value, plus bare values for the rest. */
 export function flags(args: string[]): Record<string, string | true> {
   const parsed: Record<string, string | true> = {};
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === undefined) continue;
     if (arg.startsWith('--')) {
+      const equals = arg.indexOf('=');
+      if (equals >= 0) {
+        const name = arg.slice(2, equals);
+        const value = arg.slice(equals + 1);
+        if (name) parsed[name] = value;
+        continue;
+      }
       const next = args[index + 1];
       if (next !== undefined && !next.startsWith('--')) {
         parsed[arg.slice(2)] = next;

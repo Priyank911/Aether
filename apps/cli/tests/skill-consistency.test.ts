@@ -48,5 +48,9 @@ describe('the skill and method text (Phase 3.6)', () => {
     for (const rule of ['Restate every criterion', 'Sort and filter', 'Shortlist at least 3', 'space.ask', "risk \"irreversible\"", 'untrusted']) {
       expect(CODEMODE_INSTRUCTIONS).toContain(rule);
     }
+    expect(CODEMODE_INSTRUCTIONS).toContain('Do not open a tab for every listing result');
+    expect(CODEMODE_INSTRUCTIONS).toContain('Never solve or bypass a CAPTCHA');
+    expect(CODEMODE_INSTRUCTIONS).toContain('continue from answer.page');
+    expect(CODEMODE_INSTRUCTIONS).toContain('Do not reopen that URL');
   });
 });

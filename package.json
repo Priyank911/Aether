@@ -19,6 +19,9 @@
     "mcp:build": "tsc --build apps/cli",
     "setup:build": "tsc --build apps/cli apps/native-host && pnpm extension:build",
     "doctor": "tsc --build apps/cli && node apps/cli/dist/index.js doctor",
+    "aether": "tsx apps/cli/src/index.ts",
+    "codemode:sdk": "tsx scripts/write-codemode-sdk.mts",
+    "codemode:test": "pnpm --filter @aether/desktop build && pnpm --filter @aether/cli build && pnpm exec vitest run apps/desktop/tests/codemode-desktop.test.ts apps/cli/tests/command.test.ts --poolOptions.forks.maxForks=1 --poolOptions.forks.minForks=1",
     "desktop": "tsc --build apps/desktop && pnpm --filter @aether/desktop run renderer:build && node scripts/run-desktop.mjs",
     "aether:install": "pnpm build && node scripts/aether-install.mjs install",
     "aether:uninstall": "node scripts/aether-install.mjs uninstall"

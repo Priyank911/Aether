@@ -142,7 +142,7 @@ export class DesktopTools {
     const session = this.options.engine.sessionFor(spaceId);
     if (!session) return result(`no agent Space named "${params.space}" has run in this app session`, true);
     this.options.codeMode.clearState(spaceId);
-    const output = session.done({ result: params.result, evidence: params.evidence, success: params.success });
+    const output = session.done({ result: params.result, evidence: params.evidence ?? '', success: params.success });
     const label = params.result.split('\n')[0]?.slice(0, 190) || (params.success ? 'Task finished' : 'Stopped without finishing');
     this.options.manager.setRunFrame(spaceId, { state: 'done', step: session.run.frame().step, label, timestamp: Date.now() });
     this.options.manager.addMilestone(spaceId, `Done · ${label}`, 'host', params.success ? 'done' : 'failed');

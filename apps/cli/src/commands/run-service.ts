@@ -88,6 +88,15 @@ export async function runSpaces(args: string[]): Promise<number> {
 }
 
 export async function runDone(args: string[]): Promise<number> {
+  if (args.includes('--help') || args.includes('-h')) {
+    process.stdout.write(`${[
+      'Usage: aether done --space <name> --success <yes|no> --result <text> [--evidence <text>]',
+      'Values with spaces must be quoted by your shell.',
+      'PowerShell: aether done --space "Watch hunt" --success yes --result "Compared three watches"',
+      'Inline flags: aether done --space="Watch hunt" --success=yes --result="Compared three watches"',
+    ].join('\n')}\n`);
+    return EXIT.done;
+  }
   const parsed = flags(args);
   const space = typeof parsed.space === 'string' ? parsed.space : undefined;
   const success = parsed.success === 'yes' ? true : parsed.success === 'no' ? false : undefined;

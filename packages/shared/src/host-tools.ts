@@ -33,7 +33,7 @@ export const AetherSpacesParamsSchema = z.object({
 export const AetherDoneParamsSchema = z.object({
   space: z.string(),
   result: z.string(),
-  evidence: z.string(),
+  evidence: z.string().optional(),
   success: z.boolean(),
 });
 
@@ -76,7 +76,9 @@ export function doneParamsProblem(params: z.infer<typeof AetherDoneParamsSchema>
   const space = spaceProblem(params.space, true);
   if (space) return space;
   for (const field of ['result', 'evidence'] as const) {
-    const value = params[field].trim();
+    const rawValue = params[field];
+    if (rawValue === undefined) continue;
+    const value = rawValue.trim();
     if (value.length === 0 || value.length > HOST_LIMITS.report) return `${field} must be 1 to ${HOST_LIMITS.report} characters`;
   }
   return undefined;

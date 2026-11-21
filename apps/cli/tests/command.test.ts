@@ -20,7 +20,12 @@ interface RunResult {
   stderr: string;
 }
 
-function runCli(args: string[], options: { input?: string; home: string; control?: string }, timeoutMs = 90000): Promise<RunResult> {
+function runCli(
+  args: string[],
+  options: { input?: string; home: string; control?: string; collectHeld?: boolean },
+  timeoutMs = 90000,
+  heldWaits = 0,
+): Promise<RunResult> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       env: {
@@ -42,7 +47,13 @@ function runCli(args: string[], options: { input?: string; home: string; control
     const timer = setTimeout(() => child.kill(), timeoutMs - 5000);
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ code: code ?? -1, stdout, stderr });
+      const result = { code: code ?? -1, stdout, stderr };
+      const token = /wait "([\w-]+)"/.exec(stdout)?.[1];
+      if (options.collectHeld && result.code === 2 && token && heldWaits < 20) {
+        void runCli(['wait', token], options, timeoutMs, heldWaits + 1).then(resolve);
+      } else {
+        resolve(result);
+      }
     });
     if (options.input !== undefined) child.stdin.write(options.input);
     child.stdin.end();
@@ -124,10 +135,21 @@ describe('the aether command (Phase 3.5)', () => {
 
   it('runs the shop task from a cold start: the command starts the app and exits 0', async () => {
     const script = `const page = await space.open(${JSON.stringify(`${fixtures.mainBaseUrl}/shop/list?page=1`)});\nreturn page.title;`;
-    const result = await runCli(['exec', '--space', 'Command shop', '--thought', 'Open the shop'], { input: script, home, control: controlFile }, 120000);
+    const result = await runCli(['exec', '--space', 'Command shop', '--thought', 'Open the shop'], { input: script, home, control: controlFile, collectHeld: true }, 120000);
     expect(result.code).toBe(0);
     expect(result.stdout).toMatch(/^done in Space "Command shop" in [\d.]+ s:\n<page untrusted nonce=\w+/);
   }, 150000);
+
+  it('aether done accepts the documented optional evidence and inline flag syntax', async () => {
+    const result = await runCli([
+      'done',
+      '--space=Command shop',
+      '--success=yes',
+      '--result=Compared three fixture products; no purchase made.',
+    ], { home });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('run ended (success)');
+  }, 60000);
 
   it('a failing script exits 1 with the error text', async () => {
     const result = await runCli(['exec', '--space', 'Fail', '--thought', 'Break'], { input: 'return (null as unknown as { x: { y: number } }).x.y;', home });
@@ -182,4 +204,10 @@ describe('the aether command (Phase 3.5)', () => {
     expect(result.stdout).toContain('Method for search, shopping and booking');
     expect(result.stdout).toContain('declare const space');
   }, 60000);
+
+  it('aether done help is available without a running app', async () => {
+    const result = await runCli(['done', '--help'], { home });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('Inline flags: aether done --space="Watch hunt"');
+  }, 30000);
 });

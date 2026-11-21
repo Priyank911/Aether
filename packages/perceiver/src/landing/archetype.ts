@@ -10,7 +10,7 @@ import type { PageModel } from '../types.js';
  * a related-items row), and a long reading page comes last.
  */
 
-const CAPTCHA_TEXT = /\b(verify (that )?you are (a )?human|are you a robot|press and hold|complete the security check|i'?m not a robot)\b/i;
+const CAPTCHA_TEXT = /\b(verify (that )?you are (a )?human|(?:are you|not a|aren't a|are not a) robot|press and hold|complete the security check|i'?m not a robot|captcha|human verification|security challenge|unusual (?:traffic|activity)|automated (?:requests?|access)|make sure you(?:'re| are) not a robot|enter (?:the )?characters? (?:you see|shown|in the image))\b/i;
 const SIGN_IN_FIELD = /password|passcode|passwort|mot de passe|contraseña|one[- ]?time|\botp\b|verification code|security code|\bpin\b|2fa|two[- ]factor/i;
 const FIELD_ROLES = new Set([...EDITABLE_ROLES, 'checkbox', 'radio', 'switch', 'slider']);
 const LISTING_MIN_ITEMS = 6;

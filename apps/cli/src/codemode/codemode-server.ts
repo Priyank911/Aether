@@ -106,7 +106,7 @@ export function createCodeModeMcpServer(browser: MCPBrowserSession, options: { h
         const spaceId = spaceIdFromName(params.space);
         if (host.isRunning(spaceId)) return textResult(`a script is still running in Space "${params.space}"; wait for it before ending the run`, true);
         host.clearState(spaceId);
-        return outputResult(browser.done({ result: params.result, evidence: params.evidence, success: params.success }));
+        return outputResult(browser.done({ result: params.result, evidence: params.evidence ?? '', success: params.success }));
       }),
   );
 

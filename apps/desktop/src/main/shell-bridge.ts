@@ -95,6 +95,7 @@ export class ShellBridge {
   private toast?: ShellSnapshot['toast'];
   private toastTimer?: NodeJS.Timeout;
   private toastId = 0;
+  private closed = false;
   private omnibox?: OmniboxState;
   private omniboxContext?: { spaceId: string; tabId?: string };
   private readonly navigationStore?: NavigationStore;
@@ -164,7 +165,7 @@ export class ShellBridge {
   }
 
   public push(): void {
-    if (this.shell.isDestroyed()) return;
+    if (this.closed || this.shell.isDestroyed()) return;
     const currentFrame = this.manager.frameFor(this.manager.visibleSpaceId);
     const decisionKey = currentFrame?.state === 'waiting_human' && currentFrame.pending ? `${currentFrame.spaceId}:${currentFrame.pending.id}` : '';
     if (decisionKey && decisionKey !== this.lastDecisionKey) {
@@ -210,11 +211,23 @@ export class ShellBridge {
   }
 
   private schedule(): void {
-    if (this.timer) return;
+    if (this.closed || this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       this.push();
     }, PUSH_DELAY_MS);
+  }
+
+  /** Stop deferred shell work before the manager's database is closed. */
+  public close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    clearTimeout(this.timer);
+    clearTimeout(this.doneTimer);
+    clearTimeout(this.toastTimer);
+    this.timer = undefined;
+    this.doneTimer = undefined;
+    this.toastTimer = undefined;
   }
 
   /** Shared with the test-only control channel; building a template does not open or focus anything. */

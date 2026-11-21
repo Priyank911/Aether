@@ -165,6 +165,7 @@ function start(): void {
   });
   shellWindow.window.on('closed', () => app.quit());
   app.on('before-quit', () => {
+    bridge.close();
     void service.close();
     removeServiceFile(serviceFile);
     codeMode.stopAll();

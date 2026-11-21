@@ -8,6 +8,7 @@ import {
   ItemBucket,
   NEXT_PAGE,
   ProductGraphMatcher,
+  classifyPage,
   readProductFacts,
   renderFind,
   renderFocus,
@@ -678,8 +679,14 @@ export class MCPBrowserSession {
     tab.perceiver.forgetRefs();
     const blocked = this.dialogOutput(tab);
     if (blocked) return { ...blocked, notes: [note] };
-    const output = this.page(renderSkim(await this.capture(tab)), tab);
-    return { ...output, notes: [note, ...output.notes] };
+    const model = await this.capture(tab);
+    const product = await readProductFacts(tab.session).catch(() => undefined);
+    const output = this.page(renderSkim(model), tab);
+    return {
+      ...output,
+      notes: [note, ...output.notes],
+      landing: { archetype: classifyPage(model, product), notes: [], ...(product ? { product } : {}) },
+    };
   }
 
   private async execute(tab: AgentTab, params: ActParams, before: PageModel | undefined): Promise<ToolOutput> {

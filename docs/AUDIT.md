@@ -504,3 +504,27 @@ S10 and S6 need real-host/person participation; keyboard/NVDA acceptance,
 D1 packaging, D4 layout choice and measured benchmark results remain open.
 The current app must not be described as a finished or release-ready agentic
 browser solely because the existing automated suite passes.
+
+## Verification handoff and completion command — 2026-11-21
+
+Fixed the reported post-verification and `aether done` failures:
+
+- After the person hands control back, the engine now captures and classifies
+  the existing tab again. The refreshed `PageBrief` retains its URL and tab id
+  and gets the current archetype, so a completed challenge does not stay
+  labeled as a CAPTCHA. Code Mode instructions tell the host to continue from
+  `answer.page` without reopening the page or making a duplicate tab.
+- `aether done` now honors its documented optional `--evidence`, accepts both
+  `--name value` and `--name=value`, and implements `aether done --help`.
+  The shared host schema now matches the CLI documentation.
+- Added CLI tests for inline flags, omitted evidence and the help command.
+
+Validation on 2026-11-21: `pnpm typecheck` passed; `pnpm lint` passed with 0
+errors and 7 existing warnings; the full single-fork `pnpm test` passed,
+48 files / 340 tests. The first sandboxed test attempt could not launch
+Chromium/Electron, open loopback sockets, create Windows symlinks or run the
+DPAPI PowerShell helper; the required rerun with host permissions passed.
+
+This fixture and code-path evidence does not verify the live Amazon page.
+Numeric result-page pagination remains open and should be the next browser
+task, followed by a human-verification continuation check in Aether.
