@@ -7,6 +7,8 @@ import { BaseWindow, screen, type WebContentsView } from 'electron';
  * screenshots. Live Agent tabs that the person is not looking at therefore sit
  * here: a window shown without activation, placed beyond every display, with
  * no taskbar entry, that cannot take focus or mouse input.
+ * On Linux (Wayland), child window parenting and opacity masking prevent creating
+ * an unwanted toplevel desktop surface.
  */
 
 const GAP = 200;
@@ -22,11 +24,12 @@ export class AgentHost {
   private readonly window: BaseWindow;
   private readonly views = new Set<WebContentsView>();
 
-  public constructor(size: { width: number; height: number }) {
+  public constructor(size: { width: number; height: number }, parentWindow?: BaseWindow) {
+    const isLinux = process.platform === 'linux';
     const { x, y } = beyondEveryDisplay(size.width);
     this.window = new BaseWindow({
-      x,
-      y,
+      x: isLinux ? 0 : x,
+      y: isLinux ? 0 : y,
       width: size.width,
       height: size.height,
       useContentSize: true,
@@ -36,12 +39,22 @@ export class AgentHost {
       focusable: false,
       resizable: false,
       title: 'Aether agent tabs',
+      ...(isLinux && parentWindow ? { parent: parentWindow, transparent: true, opacity: 0 } : {}),
     });
     this.window.setIgnoreMouseEvents(true);
     this.window.showInactive();
+    if (isLinux) {
+      try {
+        this.window.setOpacity(0);
+      } catch {
+        // Platform fallback
+      }
+    }
     // Displays can change while the app runs (a monitor plugged in); stay beyond all of them.
-    screen.on('display-added', () => this.reposition());
-    screen.on('display-metrics-changed', () => this.reposition());
+    if (!isLinux) {
+      screen.on('display-added', () => this.reposition());
+      screen.on('display-metrics-changed', () => this.reposition());
+    }
   }
 
   public add(view: WebContentsView): void {
@@ -54,7 +67,13 @@ export class AgentHost {
 
   public remove(view: WebContentsView): void {
     if (!this.views.delete(view)) return;
-    this.window.contentView.removeChildView(view);
+    if (!this.window.isDestroyed()) {
+      try {
+        this.window.contentView.removeChildView(view);
+      } catch {
+        // Already removed
+      }
+    }
   }
 
   public holds(view: WebContentsView): boolean {
@@ -65,7 +84,9 @@ export class AgentHost {
   public resize(width: number, height: number): void {
     if (this.window.isDestroyed()) return;
     this.window.setContentSize(Math.max(320, width), Math.max(240, height));
-    for (const view of this.views) view.setBounds({ x: 0, y: 0, width, height });
+    for (const view of this.views) {
+      if (!view.webContents.isDestroyed()) view.setBounds({ x: 0, y: 0, width, height });
+    }
     this.reposition();
   }
 
@@ -74,7 +95,7 @@ export class AgentHost {
   }
 
   private reposition(): void {
-    if (this.window.isDestroyed()) return;
+    if (this.window.isDestroyed() || process.platform === 'linux') return;
     const { width } = this.window.getBounds();
     const { x, y } = beyondEveryDisplay(width);
     this.window.setPosition(x, y);

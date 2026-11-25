@@ -66,7 +66,7 @@ function start(): void {
   const slots = () => pageSlots({ ...memory().read(), reserveRatio: config.read().minFreeMemoryRatio, cores: availableParallelism() });
 
   const shellWindow = new ShellWindow({ offscreen: Boolean(testControlFile) });
-  const host = new AgentHost(shellWindow.viewportSize());
+  const host = new AgentHost(shellWindow.viewportSize(), shellWindow.window);
   shellWindow.onResize((size) => host.resize(size.width, size.height));
   const manager = new SpaceManager({ store, host, display: shellWindow, transport, slots });
   const prompts = new BrowserPrompts(manager);

@@ -59,6 +59,16 @@ describe('memory store', () => {
     expect(siteOf('https://www.Example.com/path?q=1')).toBe('example.com');
     expect(siteOf('localhost:4101')).toBe('localhost:4101');
   });
+
+  it('stores and retrieves field inputs hashed by site and field properties for token-efficient form fill', () => {
+    const store = fresh();
+    const hash = 'a1b2c3d4e5f60708';
+    expect(store.getFormInput(hash)).toBeUndefined();
+    store.saveFormInput(hash, 'shop.example', 'Shipping Address', '123 Market St');
+    expect(store.getFormInput(hash)).toBe('123 Market St');
+    store.deleteFormInput(hash);
+    expect(store.getFormInput(hash)).toBeUndefined();
+  });
 });
 
 describe('run log', () => {

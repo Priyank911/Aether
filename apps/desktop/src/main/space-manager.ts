@@ -87,7 +87,7 @@ export class SpaceManager extends EventEmitter {
   }
 
   /** Observe main-frame navigation so a person can finish a held manual step by submitting the page. */
-  public onHumanNavigation(listener: (spaceId: string, tabId: string) => void): () => void {
+  public onHumanNavigation(listener: (spaceId: string, tabId: string, url?: string) => void): () => void {
     this.on('human-navigation', listener);
     return () => this.off('human-navigation', listener);
   }
@@ -434,8 +434,8 @@ export class SpaceManager extends EventEmitter {
       if (this.visible === tab.spaceId && this.spaces.get(tab.spaceId)?.activeTabId === tab.id && (this.spaces.has(spaceId) || this.archivedSpaces().some((space) => space.id === spaceId))) this.showSpace(spaceId);
     });
     tab.on('external-protocol', (url: string) => this.emit('external-protocol', tab.id, url));
-    tab.on('navigated', () => {
-      if (!this.closed) this.emit('human-navigation', tab.spaceId, tab.id);
+    tab.on('navigated', (url: string) => {
+      if (!this.closed) this.emit('human-navigation', tab.spaceId, tab.id, url);
     });
     tab.on('opened', (target: string) => {
       if (!this.closed && this.spaces.has(tab.spaceId)) this.openTab(tab.spaceId, target, { activate: tab.kind === 'human', live: true });

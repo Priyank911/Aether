@@ -143,15 +143,18 @@ describe('Browser basics and internal pages', () => {
     const tabId = state.spaces.find((space) => space.id === 'auth-task')?.activeTabId;
     if (!tabId) throw new Error('Missing auth tab');
     await until(() => page<string>(tabId, 'document.title'), (title) => title === 'Authenticated');
-    await until(() => evaluate<string>("document.querySelector('.decision-actions .primary')?.textContent ?? ''"), (text) => text === "I'm done");
-    await evaluate("document.querySelector('.decision-actions .primary').click()");
-    if (report.outcome.status !== 'held') throw new Error('Expected held authentication');
-    let result = await app.request<ExecReport>('exec', {space:'Auth task',thought:'Collect signed-in page',wait:report.outcome.token});
-    for (let attempt=0;result.outcome.status==='held'&&attempt<15;attempt++) result=await app.request<ExecReport>('exec',{space:'Auth task',thought:'Wait for sign-in',wait:result.outcome.token});
-    expect(result.outcome.status).toBe('complete');
-    expect(JSON.stringify(result)).not.toMatch(/alpha|beta|Authorization|Basic Y/);
-    await app.request('showSpace',{spaceId:'personal'});
-    await send({type:'panel.toggle',open:false});
+    try {
+      await until(() => evaluate<string>("document.querySelector('.decision-actions .primary')?.textContent ?? ''"), (text) => text === "I'm done");
+      await evaluate("document.querySelector('.decision-actions .primary').click()");
+      if (report.outcome.status !== 'held') throw new Error('Expected held authentication');
+      let result = await app.request<ExecReport>('exec', {space:'Auth task',thought:'Collect signed-in page',wait:report.outcome.token});
+      for (let attempt=0;result.outcome.status==='held'&&attempt<15;attempt++) result=await app.request<ExecReport>('exec',{space:'Auth task',thought:'Wait for sign-in',wait:result.outcome.token});
+      expect(result.outcome.status).toBe('complete');
+      expect(JSON.stringify(result)).not.toMatch(/alpha|beta|Authorization|Basic Y/);
+    } finally {
+      await app.request('showSpace',{spaceId:'personal'});
+      await send({type:'panel.toggle',open:false});
+    }
   },60000);
 
   it('refuses invalid certificates for agents and shows a no-bypass interstitial to the person', async () => {

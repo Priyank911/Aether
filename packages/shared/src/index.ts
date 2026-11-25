@@ -9,3 +9,4 @@ export * from './daemon.js';
 export * from './shell-ipc.js';
 export * from './config.js';
 export * from './browser-import.js';
+export * from './form-hash.js';

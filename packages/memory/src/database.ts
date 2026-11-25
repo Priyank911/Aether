@@ -90,6 +90,14 @@ CREATE TABLE IF NOT EXISTS space_state (
   value TEXT NOT NULL,
   PRIMARY KEY (space_id, key)
 );
+CREATE TABLE IF NOT EXISTS form_inputs (
+  field_hash TEXT PRIMARY KEY,
+  site TEXT NOT NULL,
+  field_name TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS form_inputs_site ON form_inputs (site);
 `;
 
 /** Open the local database and create the schema. ':memory:' is accepted for tests. */

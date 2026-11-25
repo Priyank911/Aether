@@ -97,6 +97,26 @@ export class MemoryStore {
     this.db.prepare('INSERT INTO notes (site, text, created_at) VALUES (?, ?, ?)').run(siteOf(site), text.trim(), Date.now());
   }
 
+  public getFormInput(fieldHash: string): string | undefined {
+    if (!this.enabled) return undefined;
+    const row = this.db.prepare('SELECT value FROM form_inputs WHERE field_hash = ?').get(fieldHash) as { value: string } | undefined;
+    return row?.value;
+  }
+
+  public saveFormInput(fieldHash: string, site: string, fieldName: string, value: string): void {
+    if (!this.enabled) return;
+    refuseSecrets(fieldName, value);
+    this.db
+      .prepare(
+        'INSERT INTO form_inputs (field_hash, site, field_name, value, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (field_hash) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+      )
+      .run(fieldHash, siteOf(site), fieldName.trim(), value.trim(), Date.now());
+  }
+
+  public deleteFormInput(fieldHash: string): void {
+    this.db.prepare('DELETE FROM form_inputs WHERE field_hash = ?').run(fieldHash);
+  }
+
   /** Record a route that worked. Steps are engine-written action lines, never page text. */
   public recordSuccess(site: string, goal: string, steps: string[]): void {
     if (!this.enabled || steps.length === 0) return;

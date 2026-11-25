@@ -24,18 +24,50 @@ export interface DesktopSpaceEngineOptions {
   onMilestone?: (spaceId: string, text: string, source: 'host' | 'engine' | 'script') => void;
 }
 
+const CAPTCHA_CHECK_SCRIPT = `(() => {
+  const turnstile = document.querySelector('input[name="cf-turnstile-response"], [name="cf_challenge_response"]');
+  if (turnstile && turnstile.value) return true;
+  const recaptcha = document.querySelector('textarea[name="g-recaptcha-response"], #g-recaptcha-response');
+  if (recaptcha && recaptcha.value) return true;
+  const hcaptcha = document.querySelector('textarea[name="h-captcha-response"]');
+  if (hcaptcha && hcaptcha.value) return true;
+  const arkose = document.querySelector('input[name="fc-token"]');
+  if (arkose && arkose.value) return true;
+  return false;
+})()`;
+
 export class DesktopSpaceEngine implements SpaceEngine {
   private readonly options: DesktopSpaceEngineOptions;
   private readonly engines = new Map<string, SessionSpaceEngine>();
 
   public constructor(options: DesktopSpaceEngineOptions) {
     this.options = options;
-    options.manager.onHumanNavigation((spaceId, tabId) => {
+    options.manager.onHumanNavigation((spaceId, tabId, url) => {
       const session = this.engines.get(spaceId)?.session;
       const pending = session?.run.waiting;
       if (!session || session.currentTabId() !== tabId || !pending || (pending.reason !== 'must_perform' && pending.reason !== 'captcha')) return;
+      const currentUrl = session.pageInfo()?.url;
+      if (currentUrl && url && currentUrl === url) return;
       session.run.receive({ type: 'aether.reply', id: pending.id, kind: 'done' });
     });
+
+    const captchaInterval = setInterval(() => {
+      for (const engine of this.engines.values()) {
+        const session = engine.session;
+        const pending = session?.run.waiting;
+        if (!session || !pending || pending.reason !== 'captcha') continue;
+        const tabId = session.currentTabId();
+        if (!tabId) continue;
+        const tab = this.options.manager.tab(tabId);
+        if (!tab?.view || tab.view.webContents.isDestroyed()) continue;
+        tab.view.webContents.executeJavaScript(CAPTCHA_CHECK_SCRIPT).then((solved) => {
+          if (solved && session.run.waiting?.id === pending.id) {
+            session.run.receive({ type: 'aether.reply', id: pending.id, kind: 'done' });
+          }
+        }).catch(() => undefined);
+      }
+    }, 500);
+    if (typeof captchaInterval.unref === 'function') captchaInterval.unref();
   }
 
   public async call(method: SpaceMethod, args: unknown[], run: RunContext): Promise<unknown> {

@@ -231,9 +231,26 @@ export class Tab extends EventEmitter {
         try { this.emit('switch-space', decodeURIComponent(new URL(url).pathname.slice(1))); } catch { /* Malformed Space links are not followed. */ }
       }
     });
-    contents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:/i.test(url)) this.emit('opened', url);
-      else this.emit('external-protocol', url);
+    const OAUTH_POPUP_PATTERN = /\b(accounts\.google\.com|github\.com\/login\/oauth|appleid\.apple\.com|login\.microsoftonline\.com|auth0\.com|okta\.com)\b/i;
+    contents.setWindowOpenHandler((details) => {
+      if (OAUTH_POPUP_PATTERN.test(details.url)) {
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            width: 500,
+            height: 650,
+            autoHideMenuBar: true,
+            webPreferences: {
+              partition: this.partition,
+              contextIsolation: true,
+              sandbox: true,
+              nodeIntegration: false,
+            },
+          },
+        };
+      }
+      if (/^https?:/i.test(details.url)) this.emit('opened', details.url);
+      else this.emit('external-protocol', details.url);
       return { action: 'deny' };
     });
   }
