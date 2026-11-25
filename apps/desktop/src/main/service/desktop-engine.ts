@@ -92,6 +92,11 @@ export class DesktopSpaceEngine implements SpaceEngine {
     return this.engines.get(spaceId)?.session.run.receive({ type: 'aether.reply', ...reply }) ?? false;
   }
 
+  /** Record that the person is actively working on the current handoff. */
+  public heartbeatHuman(spaceId: string, pendingId: string): boolean {
+    return this.engines.get(spaceId)?.session.run.heartbeat(pendingId) ?? false;
+  }
+
   /** The person pressed Stop or Take over on this Space: it acts at once, not at the script's next call. */
   public control(spaceId: string, kind: 'stop' | 'takeover'): void {
     this.engines.get(spaceId)?.session.run.control({ type: 'aether.control', kind });

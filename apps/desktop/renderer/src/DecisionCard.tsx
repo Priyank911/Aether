@@ -7,6 +7,15 @@ export default function DecisionCard({ pending, spaceId }: { pending: Pending; s
   const [error, setError] = useState('');
   const primary = useRef<HTMLButtonElement>(null);
   const approval = pending.approval;
+  useEffect(() => {
+    const heartbeat = () => { void window.aether.send({ type: 'run.heartbeat', spaceId, pendingId: pending.id }); };
+    window.addEventListener('pointerdown', heartbeat, true);
+    window.addEventListener('keydown', heartbeat, true);
+    return () => {
+      window.removeEventListener('pointerdown', heartbeat, true);
+      window.removeEventListener('keydown', heartbeat, true);
+    };
+  }, [pending.id, spaceId]);
   const urls = approval?.urls;
   const title = pending.reason === 'approval' ? urls?.length ? `Open ${urls.length} new sites?` : `Approve this step on ${approval?.site || 'this site'}?`
     : pending.reason === 'question' ? 'Aether has a question'

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startFixtureServers, type FixtureServers } from '@aether/fixtures';
 import type { HumanReply, Pending } from '@aether/shared';
-import { MCPBrowserSession } from '@aether/engine';
+import { MCPBrowserSession, RunState } from '@aether/engine';
 import { engineClient, type EngineClient } from './engine-client.js';
 import { call, refIn } from './helpers.js';
 
@@ -45,6 +45,18 @@ describe('Run state, holds and approvals', () => {
   async function finish(): Promise<void> {
     await call(client, 'done', { result: 'test', evidence: 'test', success: true });
   }
+
+  it('tracks recent person activity on the matching pending handoff without resolving it', () => {
+    const run = new RunState();
+    const pending = run.hold('captcha', 'Solve the check on this page.');
+    const heartbeatAt = Date.now();
+    expect(run.heartbeat('different-request', heartbeatAt)).toBe(false);
+    expect(run.heartbeat(pending.id, heartbeatAt)).toBe(true);
+    expect(run.waiting).toMatchObject({ id: pending.id, heartbeatAt });
+    expect(run.state).toBe('waiting_human');
+    expect(run.receive({ type: 'aether.reply', id: pending.id, kind: 'done' })).toBe(true);
+    expect(run.heartbeat(pending.id, heartbeatAt + 2000)).toBe(false);
+  });
 
   it('holds an irreversible click for approval, shows the card, and runs it once approved', async () => {
     const page = await call(client, 'open', { url: `${fixtures.mainBaseUrl}/injection.html` });

@@ -63,7 +63,6 @@ describe('Side panel in the native browser', () => {
   });
 
   it('saves, lists, disables and deletes local preferences without starting an agent', async () => {
-    await evaluate("document.getElementById('panel-tab-memory').click()");
     await until(() => evaluate<boolean>("Boolean(document.querySelector('.memory-toggle input:not(:disabled)'))"), Boolean);
     expect((await send({ type: 'memory', command: { type: 'aether.memory', op: 'save_fact', key: 'currency', value: 'INR' } })).ok).toBe(true);
     await until(() => evaluate<string>("document.querySelector('.memory-panel').textContent"), (text) => text.includes('INR') && text.includes('Saved by you'));

@@ -130,6 +130,7 @@ export class Actor {
     const settled = await waitForSettle(this.perceiver.session, this.watcher);
     const model = await this.perceiver.capture();
     const delta = computeDelta(before, model);
+    if (!stoppedBy && (delta.urlChanged || delta.reason === 'new page')) stoppedBy = 'navigation';
     const lines = [header(delta, settled)];
     if (error) lines.push(`error: ${error}`);
     lines.push(...notes);

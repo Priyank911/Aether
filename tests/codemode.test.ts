@@ -137,8 +137,10 @@ return out;`,
     const token = first.outcome.status === 'held' ? first.outcome.token : '';
     const busy = failed(await host.exec({ space: 'Checkout', thought: 'again', code: 'return 1;' }));
     expect(busy.message).toContain(`held as ${token}`);
-    let second = await host.exec({ space: 'Checkout', thought: 'Waiting', wait: token });
-    for (let tries = 0; second.outcome.status === 'held' && tries < 5; tries++) second = await host.exec({ space: 'Checkout', thought: 'Waiting', wait: token });
+    let second = await host.exec({ space: 'Wrong label from the host', thought: 'Waiting', wait: token });
+    for (let tries = 0; second.outcome.status === 'held' && tries < 5; tries++) second = await host.exec({ space: 'Wrong label from the host', thought: 'Waiting', wait: token });
+    expect(second.spaceId).toBe('checkout');
+    expect(second.spaceName).toBe('Checkout');
     expect(complete(second).json).toBe('"ordered"');
     expect(failed(await host.exec({ thought: 't', wait: 'f'.repeat(24) })).message).toMatch(/no held run/);
   });

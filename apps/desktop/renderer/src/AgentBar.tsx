@@ -5,7 +5,7 @@ export default function AgentBar({ entry, send, visible = true }: { entry: Shell
   const frame = entry.frame;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    if (!visible || !frame || !['acting', 'resuming'].includes(frame.state)) return;
+    if (!visible || !frame || !['acting', 'resuming', 'waiting_human'].includes(frame.state)) return;
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -13,8 +13,9 @@ export default function AgentBar({ entry, send, visible = true }: { entry: Shell
   if (!visible || !frame || frame.state === 'idle' || entry.space.kind !== 'agent') return null;
   const waiting = frame.state === 'waiting_human';
   const done = frame.state === 'done';
+  const personWorking = waiting && frame.pending?.heartbeatAt !== undefined && now - frame.pending.heartbeatAt < 15000;
   const reason = { approval: 'approval required', question: 'a question to answer', must_perform: 'your turn on this page', captcha: 'a check to solve', user_interrupted: 'you have control' };
-  const label = waiting ? `Aether needs you: ${frame.pending ? reason[frame.pending.reason] : 'review this task'}` : done ? `Done · ${frame.label}` : frame.label;
+  const label = personWorking ? `You're working on it: ${frame.pending ? reason[frame.pending.reason] : 'review this task'}` : waiting ? `Aether needs you: ${frame.pending ? reason[frame.pending.reason] : 'review this task'}` : done ? `Done · ${frame.label}` : frame.label;
   const open = entry.tabs.filter((tab) => tab.state !== 'hibernated').length;
   const seconds = Math.max(0, Math.floor((now - (frame.startedAt ?? frame.timestamp)) / 1000));
   const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;

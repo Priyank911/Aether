@@ -222,6 +222,19 @@ describe('Toolbar and omnibox (Phase 4.3)', () => {
     await input('Escape');
   });
 
+  it('focuses the address bar when the toolbar creates a new tab', async () => {
+    const before = await state();
+    const count = before.spaces.find((space) => space.id === before.visible)?.tabs.length ?? 0;
+    await evaluate("document.querySelector('[aria-label=\"New tab\"]').click()");
+    await until(state, (current) => (current.spaces.find((space) => space.id === current.visible)?.tabs.length ?? 0) === count + 1);
+    await until(() => evaluate<boolean>("document.activeElement.getAttribute('role') === 'combobox'"), Boolean);
+    expect(await evaluate<string>("document.activeElement.getAttribute('aria-label')")).toBe('Address and search');
+    const created = active(await state())?.id;
+    if (!created) throw new Error('Expected a new tab');
+    await command({ type: 'tab.close', tabId: created });
+    await until(state, (current) => (current.spaces.find((space) => space.id === current.visible)?.tabs.length ?? 0) === count);
+  });
+
   it.each(['light', 'dark'])('captures the %s toolbar and native suggestions for review', async (theme) => {
     await app.request('shellTheme', { theme });
     await until(() => evaluate<boolean>(`matchMedia('(prefers-color-scheme: ${theme})').matches`), Boolean);

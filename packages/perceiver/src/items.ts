@@ -85,7 +85,10 @@ function refsIn(model: PageModel, line: TextLine): string[] {
   const refs = [...line.linked.matchAll(/\]\((e\d+)\)/g)].map((match) => match[1] ?? '').filter(Boolean);
   const owner = line.path.at(-1);
   const node = owner ? model.byRef.get(owner) : undefined;
-  if (node?.role === 'heading') refs.push(...descendantRefs(node));
+  if (node?.role === 'heading') {
+    if (node.ref) refs.push(node.ref);
+    refs.push(...descendantRefs(node));
+  }
   return refs;
 }
 
@@ -99,6 +102,7 @@ interface Candidate {
   shape: string;
   refs: Map<string, string>;
   hrefs: Set<string>;
+  titles: Map<string, string>;
 }
 
 /** Group item-like links by path shape, outside navigation regions. */
@@ -109,11 +113,44 @@ function candidates(model: PageModel): Candidate[] {
     if (!node?.href || node.role !== 'link' || insideNavigation(model, ref)) continue;
     const shape = shapeOf(node.href);
     if (!shape) continue;
-    const group = groups.get(shape) ?? { shape, refs: new Map(), hrefs: new Set() };
+    const group = groups.get(shape) ?? { shape, refs: new Map(), hrefs: new Set(), titles: new Map() };
     group.refs.set(ref, itemKey(node.href));
     group.hrefs.add(itemKey(node.href));
     groups.set(shape, group);
   }
+  return [...groups.values()].filter((group) => group.hrefs.size >= MIN_ITEMS).concat(semanticCandidates(model));
+}
+
+function semanticCandidates(model: PageModel): Candidate[] {
+  const groups = new Map<string, Candidate>();
+  const visit = (node: PageNode): void => {
+    const subtree: PageNode[] = [];
+    const collect = (current: PageNode): void => {
+      subtree.push(current);
+      for (const child of current.children) collect(child);
+    };
+    collect(node);
+    const headings = subtree.filter((candidate) => candidate.role === 'heading' && candidate.name.trim());
+    const links = subtree.filter((candidate) => candidate.role === 'link' && candidate.ref && candidate.href);
+    const buttons = subtree.filter((candidate) => candidate.role === 'button' && candidate.ref);
+    if (headings.length === 1 && (links.length > 0 || buttons.length > 0 || headings[0]?.ref)) {
+      const heading = headings[0];
+      const title = heading?.name.trim() ?? '';
+      const target = links.find((candidate) => candidate.name.trim() === title) ?? links[0] ?? (heading?.ref ? heading : buttons[0]);
+      if (heading && target?.ref) {
+        const roles = subtree.filter((candidate) => ['heading', 'link', 'button', 'listitem', 'row'].includes(candidate.role)).map((candidate) => candidate.role).sort();
+        const shape = `semantic:${node.role}:${roles.join(',')}`;
+        const group = groups.get(shape) ?? { shape, refs: new Map(), hrefs: new Set(), titles: new Map() };
+        const key = target.href ? itemKey(target.href) : `semantic:${title.toLowerCase()}`;
+        group.refs.set(target.ref, key);
+        group.titles.set(target.ref, title);
+        group.hrefs.add(key);
+        groups.set(shape, group);
+      }
+    }
+    for (const child of node.children) visit(child);
+  };
+  for (const root of model.roots) visit(root);
   return [...groups.values()].filter((group) => group.hrefs.size >= MIN_ITEMS);
 }
 
@@ -135,12 +172,13 @@ function segment(model: PageModel, group: Candidate): ListingItem[] {
   };
   for (const line of model.lines) {
     const refs = refsIn(model, line);
-    const anchorRef = refs.find((ref) => group.refs.has(ref));
+    const titleRef = [...group.titles].find(([, title]) => line.plain.trim() === title)?.[0];
+    const anchorRef = refs.find((ref) => group.refs.has(ref)) ?? titleRef;
     const key = anchorRef ? group.refs.get(anchorRef) : undefined;
     if (anchorRef && key && key !== current?.key) {
       finish();
       const node = model.byRef.get(anchorRef);
-      current = { key, ref: anchorRef, title: node?.name ?? '', prices: [], notes: [], text: carried, lines: 0 };
+      current = { key, ref: anchorRef, title: group.titles.get(anchorRef) ?? node?.name ?? '', prices: [], notes: [], text: carried, lines: 0 };
       carried = [];
     }
     if (!anchorRef && LEADING_LABEL.test(line.plain)) {

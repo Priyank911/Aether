@@ -136,6 +136,17 @@ describe('Actor: trusted CDP input against the latest capture', () => {
     expect(result.text.split('\n')[0]).toBe('step 1 failed 0/1 | url unchanged');
   });
 
+  it('reports same-document URL changes as navigation even when they are the final action', async () => {
+    const { actor, model } = await setup('long-page.html');
+    const result = await actor.execute({
+      actions: [{ op: 'click', ref: refOf(model, 'link', 'Category 1') }],
+      risk: 'read',
+      why: 'Open the first section',
+    });
+    expect(result.stoppedBy).toBe('navigation');
+    expect(result.text.split('\n')[0]).toContain('url ->');
+  });
+
   it('rejects an op that needs a ref when none is given', async () => {
     const { actor } = await setup('form.html');
     const result = await actor.execute({ actions: [{ op: 'click' }], risk: 'read', why: 'Missing ref' });

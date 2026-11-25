@@ -74,7 +74,7 @@ export class CodeModeHost {
   private readonly engine: SpaceEngine;
   private readonly options: Required<Omit<CodeModeHostOptions, 'onLog'>> & Pick<CodeModeHostOptions, 'onLog'>;
   private readonly active = new Map<string, ActiveRun>();
-  private readonly held = new Map<string, { spaceId: string; done: Promise<ExecReport>; expires?: NodeJS.Timeout }>();
+  private readonly held = new Map<string, { spaceId: string; spaceName: string; done: Promise<ExecReport>; expires?: NodeJS.Timeout }>();
   private readonly state = new Map<string, Map<string, { text: string; origins: string[] }>>();
 
   public constructor(engine: SpaceEngine, options: CodeModeHostOptions = {}) {
@@ -123,7 +123,7 @@ export class CodeModeHost {
     this.engine.runStarted(context, params.thought);
     return this.raceHold(run.done, () => {
       run.token ??= newToken();
-      this.held.set(run.token, { spaceId, done: run.done });
+      this.held.set(run.token, { spaceId, spaceName, done: run.done });
       return run.token;
     }, spaceId, spaceName);
   }
@@ -156,7 +156,7 @@ export class CodeModeHost {
   private async waitFor(token: string, spaceId: string, spaceName: string): Promise<ExecReport> {
     const entry = this.held.get(token);
     if (!entry) return this.failure(spaceId, spaceName, `no held run with token ${token}; it finished more than ${Math.round(this.options.heldResultTtlMs / 60000)} minutes ago or never existed`);
-    return this.raceHold(entry.done, () => token, entry.spaceId, spaceName);
+    return this.raceHold(entry.done, () => token, entry.spaceId, entry.spaceName);
   }
 
   /** The run's report if it finishes within the hold time, otherwise a held outcome with a token to wait on. */

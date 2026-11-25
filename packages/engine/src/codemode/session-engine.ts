@@ -103,7 +103,8 @@ export class SessionSpaceEngine implements SpaceEngine {
       case 'switchTab': {
         const output = await this.settled(() => this.session.switchTabTo(String(args[0])));
         if (output.isError && output.page === undefined) throw new CodeModeCallError(errorCode(output.notes.join(' ')), output.notes.join(' ') || 'the engine refused this call');
-        return this.brief({ ...output, notes: [] }, run);
+        this.lastBrief = undefined;
+        return this.brief(await this.settled(() => this.session.look({})), run);
       }
       case 'mapPage':
         // With real Space tabs each page gets its own tab; with the one agent tab the reads take turns.
@@ -136,7 +137,9 @@ export class SessionSpaceEngine implements SpaceEngine {
   private async skim(run: RunContext): Promise<PageBrief> {
     const output = await this.settled(() => this.session.look({}));
     // An unchanged page answers in one line; the script still needs the skim it already had.
-    if (output.page === undefined && this.lastBrief) return this.lastBrief;
+    const info = this.session.pageInfo();
+    const tabId = this.session.currentTabId() ?? TAB_ID;
+    if (output.page === undefined && this.lastBrief && this.lastBrief.url === info?.url && this.lastBrief.tabId === tabId) return this.lastBrief;
     return this.brief(output, run);
   }
 
@@ -174,6 +177,7 @@ export class SessionSpaceEngine implements SpaceEngine {
   private async survey(criteria: { query: string; budget?: number; minRating?: number; maxPages?: number }, run: RunContext): Promise<unknown> {
     const found = await this.data(() => this.session.surveyData(criteria));
     this.markRead(run, found.url);
+    if (this.lastBrief && this.lastBrief.url !== this.session.pageInfo()?.url) this.lastBrief = undefined;
     const { result } = found;
     return {
       shortlist: result.shortlist.map((candidate) => ({ item: candidate.item, score: Number(candidate.score.toFixed(3)), highlights: candidate.highlights })),
@@ -185,13 +189,17 @@ export class SessionSpaceEngine implements SpaceEngine {
   private async act(actions: Array<z.infer<typeof ActionItemSchema>>, options: { risk: z.infer<typeof ActionRiskSchema>; why: string }, run: RunContext): Promise<unknown> {
     const output = await this.settled(() => this.session.act({ actions, risk: options.risk, why: options.why }));
     const delta = output.page ?? '';
+    if (/\| url ->/.test(delta) || /page changed \(new page\)/.test(delta)) this.lastBrief = undefined;
     if (output.page !== undefined) this.markRead(run, output.url);
     const head = /ok (\d+)\/(\d+)/.exec(delta);
     const stopped = /stopped by (\w+)/.exec(delta)?.[1];
+    const pageChanged = /\| url ->/.test(delta) || /page changed \((?:new page|frames changed|most of the page changed|the change is larger than the page)\)/.test(delta);
+    const stoppedBy = stopped === 'navigation' || stopped === 'dialog' || stopped === 'person' ? stopped
+      : pageChanged ? 'navigation' : stopped || output.isError ? 'failure' : undefined;
     return {
       ok: Number(head?.[1] ?? 0),
       total: Number(head?.[2] ?? actions.length),
-      ...(stopped ? { stoppedBy: stopped === 'navigation' || stopped === 'dialog' || stopped === 'person' ? stopped : 'failure' } : output.isError ? { stoppedBy: 'failure' } : {}),
+      ...(stoppedBy ? { stoppedBy } : {}),
       delta: [...output.notes, delta].filter(Boolean).join('\n'),
       url: this.session.pageInfo()?.url ?? output.url ?? '',
     };

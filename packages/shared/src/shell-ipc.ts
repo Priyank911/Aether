@@ -97,6 +97,7 @@ export const ShellCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('overlay.layout'), open: z.boolean() }),
   z.object({ type: z.literal('run.control'), control: RunControlSchema, spaceId: SpaceIdSchema }),
   z.object({ type: z.literal('run.reply'), reply: HumanReplySchema, spaceId: SpaceIdSchema }),
+  z.object({ type: z.literal('run.heartbeat'), pendingId: z.string().min(1), spaceId: SpaceIdSchema }),
   z.object({ type: z.literal('memory'), command: MemoryCommandSchema }),
   z.object({ type: z.literal('toast.dismiss'), id: z.number().int().nonnegative() }),
   z.object({ type: z.literal('shell.ready') }),

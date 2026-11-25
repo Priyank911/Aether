@@ -38,6 +38,15 @@ export class RunState {
     return this.pending;
   }
 
+  /** Record recent person activity for the current handoff without accepting it. */
+  public heartbeat(id: string, timestamp = Date.now()): boolean {
+    if (!this.pending || this.pending.id !== id) return false;
+    if (this.pending.heartbeatAt !== undefined && timestamp - this.pending.heartbeatAt < 1000) return true;
+    this.pending = { ...this.pending, heartbeatAt: timestamp };
+    this.emit();
+    return true;
+  }
+
   /** Called the moment the person presses Stop, so a running script ends at once rather than at its next call. */
   public onStop(listener: () => void): () => void {
     this.stopListeners.add(listener);

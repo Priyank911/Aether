@@ -37,8 +37,7 @@ describe('Settings in the trusted shell',()=>{
     await until(()=>evaluate<string>("document.querySelector('.settings-actions [role=status]').textContent"),(value)=>value.includes('Settings saved'));
     expect(JSON.parse(readFileSync(path.join(app.home,'config.json'),'utf8'))).toEqual({cookieBanners:'off',minFreeMemoryRatio:.3});
     await send({type:'panel.toggle',open:true});
-    await until(()=>evaluate<boolean>("Boolean(document.getElementById('panel-tab-memory'))"),Boolean);
-    await evaluate("document.getElementById('panel-tab-memory').click()");
+    await until(()=>evaluate<boolean>("Boolean(document.querySelector('.memory-panel'))"),Boolean);
     await until(()=>evaluate<boolean>("Boolean(document.querySelector('.memory-toggle input:not(:disabled)'))"),Boolean);
     expect(await evaluate<boolean>("document.querySelector('.memory-toggle input').checked")).toBe(false);
     await send({type:'panel.toggle',open:false});

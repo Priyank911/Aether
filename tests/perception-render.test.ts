@@ -3,6 +3,7 @@ import {
   computeDelta,
   renderFind,
   renderFocus,
+  renderItems,
   renderSkim,
   renderText,
   SKIM_BUDGET,
@@ -157,6 +158,31 @@ describe('focus', () => {
   it('rejects an after ref outside the region', () => {
     const page = model([node('list', '', { children: [node('link', 'A')] }), node('button', 'Elsewhere')]);
     expect(() => renderFocus(page, 'e1', 'e3')).toThrow('after=e3 is not inside [e1]');
+  });
+});
+
+describe('semantic listing items', () => {
+  it('groups repeated heading and sibling-link structures without requiring card selectors or matching URL paths', () => {
+    const cards: PageNode[] = [];
+    const lines = [];
+    for (const [index, title] of ['Northwind jacket', 'Harbor raincoat', 'Summit shell'].entries()) {
+      const heading = node('heading', title, { level: 2 });
+      const link = node('link', 'View listing');
+      link.href = `https://market.example/${index === 0 ? 'p' : index === 1 ? 'item/details' : 'catalog/shell'}?sku=${index + 1}`;
+      cards.push(node('article', '', { children: [heading, node('generic', '', { children: [link] })] }));
+      lines.push(line(title, heading.ref ? [heading.ref] : []));
+      lines.push(line(`$${(index + 1) * 20}.00`, []));
+      lines.push(line('Free delivery tomorrow', []));
+      lines.push(line('View listing', link.ref ? [link.ref] : [], 'in', `[View listing](${link.ref})`));
+    }
+
+    const result = renderItems(model([node('main', '', { children: cards })], { lines }));
+    expect(result.text).toContain('3 found');
+    expect(result.text).toContain('Northwind jacket');
+    expect(result.text).toContain('Harbor raincoat');
+    expect(result.text).toContain('Summit shell');
+    expect(result.text).toContain('$40.00');
+    expect(result.text).toContain('Free delivery tomorrow');
   });
 });
 

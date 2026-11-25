@@ -28,11 +28,18 @@ export default function App() {
   const newTab = () => {
     const current = snapRef.current;
     focusAfterNewTab.current = { previous: current?.spaces.find((entry) => entry.space.id === current.activeSpaceId)?.activeTabId };
-    send({ type: 'tab.new' });
+    void window.aether.send({ type: 'tab.new' }).then((result) => {
+      const response = result as { ok?: boolean; error?: string } | undefined;
+      if (response?.ok === false) { setNotice(response.error ?? 'failed'); return; }
+      const visible = snapRef.current?.spaces.find((entry) => entry.space.id === snapRef.current?.activeSpaceId);
+      if (visible?.frame?.pending) return;
+      requestAnimationFrame(() => { omniboxRef.current?.focus(); omniboxRef.current?.select(); });
+    }).catch(() => setNotice('shell command failed'));
   };
 
   useEffect(() => {
-    if (snap?.focusOmnibox) requestAnimationFrame(() => { omniboxRef.current?.focus(); omniboxRef.current?.select(); });
+    const visible = snap?.spaces.find((entry) => entry.space.id === snap.activeSpaceId);
+    if (snap?.focusOmnibox && !visible?.frame?.pending) requestAnimationFrame(() => { omniboxRef.current?.focus(); omniboxRef.current?.select(); });
   }, [snap?.focusOmnibox]);
 
   useEffect(() => {

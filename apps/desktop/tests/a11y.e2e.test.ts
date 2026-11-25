@@ -20,7 +20,7 @@ describe('Native keyboard-only decision flow',()=>{
   beforeAll(async()=>{app=await startDesktop({keepHome:true});await until(()=>evaluate<boolean>("Boolean(document.querySelector('.toolbar'))"),Boolean);},60000);
   afterAll(async()=>{await app?.close();});
 
-  it('reaches Activity/Memory by Tab, switches with arrows and answers a live question without pointer input',async()=>{
+  it('keeps Memory in the side panel and answers a live question without pointer input',async()=>{
     const running=app.request<ExecReport>('exec',{space:'Keyboard review',thought:'Ask the person for a destination',code:"const answer=await space.ask('Which destination should I use?');return {reply:answer.reply};"});
     await until(()=>app.request<{spaces:Array<{id:string}>}>('state'),state=>state.spaces.some(space=>space.id==='keyboard-review'));
     await app.request('showSpace',{spaceId:'keyboard-review'});
@@ -28,22 +28,8 @@ describe('Native keyboard-only decision flow',()=>{
     expect(await evaluate<string>("document.querySelector('.side-panel').tagName")).toBe('ASIDE');
     expect(await evaluate<string>("document.querySelector('.decision-card').getAttribute('role')")).toBe('dialog');
     expect(await evaluate<boolean>("Boolean(document.getElementById(document.querySelector('.decision-card').getAttribute('aria-labelledby'))?.textContent)")).toBe(true);
-    await until(()=>evaluate<string>('document.activeElement.textContent'),text=>text==='Send answer');
-
-    await key('F6');
-    await until(()=>evaluate<string>('document.activeElement.getAttribute("role")'),role=>role==='combobox');
-    for(let index=0;index<20;index++){
-      if(await evaluate<boolean>("document.activeElement.id==='panel-tab-activity'"))break;
-      const previous=await evaluate<string>('document.activeElement.outerHTML');
-      await key('Tab');
-      await until(()=>evaluate<string>('document.activeElement.outerHTML'),html=>html!==previous);
-    }
-    expect(await evaluate<string>('document.activeElement.id')).toBe('panel-tab-activity');
-
-    await key('Right');
-    await until(()=>evaluate<string>('document.activeElement.id'),id=>id==='panel-tab-memory');
-    expect(await evaluate<string>("document.querySelector('#panel-tab-memory').getAttribute('aria-selected')")).toBe('true');
-    await key('Left');
+    expect(await evaluate<boolean>("Boolean(document.querySelector('.memory-panel'))")).toBe(true);
+    expect(await evaluate<boolean>("Boolean(document.querySelector('.side-panel .milestones, .side-panel [role=tablist]'))")).toBe(false);
     await until(()=>evaluate<string>('document.activeElement.textContent'),text=>text==='Send answer');
 
     await key('Tab',['shift']);

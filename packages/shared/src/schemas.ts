@@ -129,6 +129,7 @@ export const PendingSchema = z.object({
   options: z.array(z.string()).optional(),
   approval: ApprovalDetailSchema.optional(),
   createdAt: z.number().int(),
+  heartbeatAt: z.number().int().optional(),
 });
 
 export const RunStateFrameSchema = z.object({

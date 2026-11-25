@@ -144,8 +144,14 @@ export class ShellBridge {
       this.find = { ...this.find, active: result.activeMatchOrdinal, total: result.matches };
       this.schedule();
     });
-    app.on('web-contents-created', (_event, contents) => observeFind(contents));
-    for (const entry of manager.list()) for (const tab of entry.tabs) if (tab.view) observeFind(tab.view.webContents);
+    const observeHumanInput = (contents: WebContents) => contents.on('before-input-event', (_event, input) => {
+      if (input.type !== 'keyDown' || !this.engine) return;
+      const spaceId = this.manager.visibleSpaceId;
+      const frame = this.manager.frameFor(spaceId);
+      if (frame?.state === 'waiting_human' && frame.pending && this.engine.heartbeatHuman(spaceId, frame.pending.id)) this.schedule();
+    });
+    app.on('web-contents-created', (_event, contents) => { observeFind(contents); observeHumanInput(contents); });
+    for (const entry of manager.list()) for (const tab of entry.tabs) if (tab.view) { observeFind(tab.view.webContents); observeHumanInput(tab.view.webContents); }
     installBrowserBasics(manager, window, (command) => { void this.run(command).catch((error: unknown) => this.showToast(String(error))); });
     installBrowserShortcuts(manager, window, (command) => this.run(command), () => {
       this.setSpaceMenuOpen(false);
@@ -331,6 +337,11 @@ export class ShellBridge {
         return { ok: true };
       case 'tab.new':
         manager.openTab(command.spaceId ?? manager.visibleSpaceId, command.url ?? NEW_TAB_URL, { activate: true });
+        if ((command.spaceId ?? manager.visibleSpaceId) === manager.visibleSpaceId) {
+          this.focusRequest++;
+          this.shell.focus();
+          this.schedule();
+        }
         return { ok: true };
       case 'tab.close':
         manager.closeTab(command.tabId);
@@ -527,6 +538,11 @@ export class ShellBridge {
         if (!this.engine) return { ok: false, error: 'no agent engine' };
         const accepted = this.engine.reply(command.spaceId, command.reply);
         return accepted ? { ok: true } : { ok: false, error: 'no pending request matches this reply' };
+      }
+      case 'run.heartbeat': {
+        const accepted = this.engine?.heartbeatHuman(command.spaceId, command.pendingId) ?? false;
+        if (accepted) this.schedule();
+        return accepted ? { ok: true } : { ok: false, error: 'no pending request matches this heartbeat' };
       }
       case 'tab.move':
         this.manager.moveTab(command.tabId, command.index);
